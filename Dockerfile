@@ -11,9 +11,9 @@ RUN npm run build
 # Laravel and PhpSpreadsheet's required PHP extensions.
 FROM php:8.3-cli AS php-base
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libfreetype6-dev libjpeg62-turbo-dev libonig-dev libpng-dev libzip-dev \
+    && apt-get install -y --no-install-recommends libfreetype6-dev libjpeg62-turbo-dev libonig-dev libpng-dev libpq-dev libzip-dev \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install -j"$(nproc)" gd mbstring zip \
+    && docker-php-ext-install -j"$(nproc)" gd mbstring pdo_pgsql zip \
     && rm -rf /var/lib/apt/lists/*
 
 # Install PHP dependencies separately so Composer's cache remains effective.
