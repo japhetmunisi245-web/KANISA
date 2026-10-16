@@ -8,17 +8,12 @@ RUN npm ci
 COPY . ./
 RUN npm run build
 
-# Laravel and PhpSpreadsheet's required PHP extensions. PHP's Apache module
-# requires prefork, so the image enables that MPM and no other.
-FROM php:8.3-apache AS php-base
+# Laravel and PhpSpreadsheet's required PHP extensions.
+FROM php:8.3-cli AS php-base
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libfreetype6-dev libjpeg62-turbo-dev libonig-dev libpng-dev libzip-dev \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j"$(nproc)" gd mbstring zip \
-    && rm -f /etc/apache2/mods-enabled/mpm_*.load /etc/apache2/mods-enabled/mpm_*.conf \
-    && a2enmod mpm_prefork \
-    && a2enmod rewrite \
-    && sed -ri -e 's!/var/www/html!/var/www/html/public!g' /etc/apache2/sites-available/000-default.conf \
     && rm -rf /var/lib/apt/lists/*
 
 # Install PHP dependencies separately so Composer's cache remains effective.
@@ -39,4 +34,5 @@ COPY --from=assets /app/public/build ./public/build
 RUN php artisan package:discover --ansi \
     && chown -R www-data:www-data storage bootstrap/cache
 
-EXPOSE 80
+EXPOSE 8080
+CMD ["sh", "-c", "php artisan serve --host=0.0.0.0 --port=${PORT:-8080}"]
