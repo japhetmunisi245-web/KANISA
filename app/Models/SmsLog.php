@@ -15,7 +15,15 @@ class SmsLog extends Model
         'user_id',
         'message',
         'recipients_count',
-        'status', // sent, failed, pending
+        'sent_count',
+        'failed_count',
+        'status',        // sent, partial, failed
+        'api_response',  // raw JSON response from Beem
+        'error_message', // error string if sending failed
+    ];
+
+    protected $casts = [
+        'api_response' => 'array',
     ];
 
     public function department(): BelongsTo

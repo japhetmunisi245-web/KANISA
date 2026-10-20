@@ -2121,10 +2121,22 @@
                 <form action="{{ route('sms.send') }}" method="POST">
                     @csrf
                     <input type="hidden" name="department_id" value="{{ $department->id ?? '' }}">
+
+                    <div style="margin-bottom:14px;padding:10px 14px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;font-size:0.85rem;color:#5b21b6;display:flex;align-items:center;gap:10px;">
+                        <i class="fa-solid fa-tag" style="font-size:1.1rem;color:#7c3aed;"></i>
+                        <div>
+                            <div>Utambulisho unaotangulia ujumbe: <strong style="color:#6d28d9;">[{{ mb_strtoupper($department->name_sw ?? 'KANISA') }}]</strong></div>
+                            <small style="color:#7c3aed;opacity:0.9;">Wapokeaji wataona ujumbe unatoka kwa <strong>KANISA</strong> ukiwa na utambulisho wa idara hii.</small>
+                        </div>
+                    </div>
+
                     <div class="form-group">
-                        <label class="form-label">Ujumbe wa SMS <span style="color:var(--text-muted);font-weight:400;">(Max 160 herufi)</span></label>
+                        <label class="form-label">Ujumbe wa SMS <span style="color:var(--text-muted);font-weight:400;">(Hadi herufi 160)</span></label>
                         <textarea name="message" class="form-control" rows="4" maxlength="160" required placeholder="Andika ujumbe wako hapa..." id="smsText" oninput="updateSmsCount()"></textarea>
-                        <p style="text-align:right;font-size:.78rem;color:var(--text-muted);margin-top:4px;"><span id="smsCount">0</span>/160</p>
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:.78rem;color:var(--text-muted);">
+                            <span id="smsPreviewNote" style="font-style:italic;">Mfano: [{{ mb_strtoupper($department->name_sw ?? 'KANISA') }}] Ujumbe wako...</span>
+                            <span><span id="smsCount">0</span>/160</span>
+                        </div>
                     </div>
                     <button type="submit" class="btn btn-primary"><i class="fa-solid fa-paper-plane"></i> Tuma SMS</button>
                 </form>
@@ -2141,8 +2153,14 @@
                             <span class="item-card-date">{{ $sms->created_at->format('d/m/Y H:i') }}</span>
                         </div>
                         <div class="item-card-body" style="color:var(--text-muted)">
-                            Waliopokea: <strong>{{ $sms->recipients_count }}</strong> ·
-                            <span class="badge-pill {{ $sms->status === 'sent' ? 'limit-ok' : 'limit-warn' }}">{{ ucfirst($sms->status) }}</span>
+                            Waliopokea: <strong>{{ $sms->sent_count ?? $sms->recipients_count }}</strong>
+                            @if(isset($sms->failed_count) && $sms->failed_count > 0)
+                                · <span style="color:#ef4444;">Walioshindwa: <strong>{{ $sms->failed_count }}</strong></span>
+                            @endif
+                            · <span class="badge-pill {{ $sms->status === 'sent' ? 'limit-ok' : ($sms->status === 'partial' ? 'limit-warn' : 'limit-warn') }}" style="{{ $sms->status === 'failed' ? 'background:#fee2e2;color:#dc2626;' : '' }}">{{ ucfirst($sms->status) }}</span>
+                            @if(!empty($sms->error_message))
+                                <div style="font-size:0.75rem;color:#ef4444;margin-top:4px;"><i class="fa-solid fa-triangle-exclamation"></i> {{ $sms->error_message }}</div>
+                            @endif
                         </div>
                     </div>
                 @empty
@@ -3769,6 +3787,14 @@
         const labelText = document.querySelector('#panel-members p');
         if (labelText && label) {
             labelText.innerHTML = `${label} · Jumla: <strong>${visible}</strong>`;
+        }
+    }
+
+    function updateSmsCount() {
+        const textarea = document.getElementById('smsText');
+        const countSpan = document.getElementById('smsCount');
+        if (textarea && countSpan) {
+            countSpan.textContent = textarea.value.length;
         }
     }
 

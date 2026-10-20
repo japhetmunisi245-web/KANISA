@@ -12,6 +12,7 @@ use App\Models\SmsLog;
 use App\Models\User;
 use App\Models\ChurchSetting;
 use App\Models\ChurchAnnouncement;
+use App\Services\BeemSmsService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -764,7 +765,7 @@ class DashboardController extends Controller
         return redirect()->back()->with('success', 'Barua imetengenezwa kikamilifu!');
     }
 
-    // Leader actions: Send SMS
+    // Leader actions: Send SMS via Beem Africa
     public function sendSms(Request $request)
     {
         $request->validate([
@@ -772,30 +773,75 @@ class DashboardController extends Controller
             'message'       => 'required|string|max:160',
         ]);
 
-        $department     = Department::findOrFail($request->department_id);
-        $recipientsCount = $department->users()
+        $department = Department::findOrFail($request->department_id);
+
+        // Fetch members with phone numbers (exclude admin & mchungaji)
+        $members = $department->users()
             ->whereNotIn('users.role', ['admin', 'mchungaji'])
             ->whereDoesntHave('roles', function ($roleQuery) {
                 $roleQuery->whereIn('roles.name', ['admin', 'mchungaji']);
             })
-            ->count();
+            ->whereNotNull('phone')
+            ->where('phone', '!=', '')
+            ->get(['users.id', 'users.phone']);
+
+        $recipientsCount = $members->count();
+
+        // Auto-prefix department name so recipients immediately know which department sent the SMS
+        $deptTag = '[' . mb_strtoupper($department->name_sw) . '] ';
+        $messageToSend = str_starts_with(trim($request->message), '[')
+            ? trim($request->message)
+            : $deptTag . trim($request->message);
+
+        // Build Beem recipients payload
+        $beemRecipients = $members->map(function ($member, $index) {
+            return [
+                'recipient_id' => $member->id,
+                'dest_addr'    => BeemSmsService::normalisePhone((string) $member->phone),
+            ];
+        })->values()->toArray();
+
+        // Attempt real SMS delivery via Beem Africa
+        $result = ['success' => false, 'sent' => 0, 'failed' => 0, 'response' => null, 'error' => 'No recipients with phone numbers found.'];
+        if (!empty($beemRecipients)) {
+            $beemService = new BeemSmsService();
+            $result      = $beemService->send($beemRecipients, $messageToSend);
+        }
+
+        // Determine final status
+        $status = 'failed';
+        if ($result['success']) {
+            $status = $result['failed'] > 0 ? 'partial' : 'sent';
+        }
 
         $smsLog = SmsLog::create([
-            'department_id'   => $department->id,
-            'user_id'         => Auth::id(),
-            'message'         => $request->message,
-            'recipients_count'=> $recipientsCount,
-            'status'          => 'sent',
+            'department_id'    => $department->id,
+            'user_id'          => Auth::id(),
+            'message'          => $messageToSend,
+            'recipients_count' => $recipientsCount,
+            'sent_count'       => $result['sent'],
+            'failed_count'     => $result['failed'],
+            'status'           => $status,
+            'api_response'     => $result['response'],
+            'error_message'    => $result['error'],
         ]);
 
         \App\Models\AuditLog::create([
-            'user_id' => Auth::id(),
-            'action' => 'SMS_SENT',
-            'description' => "SMS imetumwa kwa wanachama {$recipientsCount} wa {$department->name_sw}.",
-            'ip_address' => $request->ip(),
+            'user_id'     => Auth::id(),
+            'action'      => 'SMS_SENT',
+            'description' => "SMS imetumwa kwa wanachama {$result['sent']} wa {$department->name_sw} kupitia Beem Africa.",
+            'ip_address'  => $request->ip(),
             'document_id' => (string) $smsLog->id,
         ]);
 
-        return redirect()->back()->with('success', "SMS imetumwa kwa wanachama {$recipientsCount} wa {$department->name_sw}!");
+        if ($result['success']) {
+            $msg = "SMS imetumwa kwa wanachama {$result['sent']} wa {$department->name_sw} kikamilifu!";
+            if ($result['failed'] > 0) {
+                $msg .= " (Wanachama {$result['failed']} hawakupata ujumbe — nambari zao zinaweza kuwa si sahihi.)"; 
+            }
+            return redirect()->back()->with('success', $msg);
+        }
+
+        return redirect()->back()->with('error', 'SMS haikutumwa: ' . ($result['error'] ?? 'Hitilafu ya API.'));
     }
 }
