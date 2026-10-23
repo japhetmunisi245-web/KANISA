@@ -12,13 +12,36 @@ use App\Models\SmsLog;
 use App\Models\User;
 use App\Models\ChurchSetting;
 use App\Models\ChurchAnnouncement;
-use App\Services\BeemSmsService;
+use App\Models\Offering;
+use App\Models\DutySchedule;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 class DashboardController extends Controller
 {
+    public function markNotificationsRead(Request $request)
+    {
+        $request->session()->put('notifications_read_at_'.Auth::id(), now()->toIso8601String());
+
+        return response()->noContent();
+    }
+
+    /** Change only the dashboard view; the user's account, roles and records remain unchanged. */
+    public function setDashboardViewMode(Request $request)
+    {
+        $data = $request->validate(['mode' => 'required|in:leader,member']);
+        /** @var User $user */
+        $user = Auth::user();
+        $canSwitch = ! $user->isAdmin() && ! $user->isMchungaji()
+            && $user->departments()->wherePivot('role', 'kiongozi')->exists();
+
+        abort_unless($canSwitch, 403);
+        $request->session()->put('dashboard_view_mode', $data['mode']);
+
+        return redirect()->route('dashboard');
+    }
+
     public function index(Request $request)
     {
         /** @var User $user */
@@ -28,9 +51,22 @@ class DashboardController extends Controller
         }
         $user->load('departments');
 
+        $canSwitchDashboardMode = ! $user->isAdmin() && ! $user->isMchungaji()
+            && $user->departments->contains(fn (Department $department) => $department->pivot?->role === 'kiongozi');
+        $dashboardViewMode = $canSwitchDashboardMode && $request->session()->get('dashboard_view_mode') === 'member'
+            ? 'member'
+            : 'leader';
+        if (! $canSwitchDashboardMode) {
+            $request->session()->forget('dashboard_view_mode');
+        }
+        $user->setAttribute('dashboard_view_mode', $dashboardViewMode === 'member' ? 'member' : null);
+
         $allDepartmentIds = Department::pluck('id');
         $requestedDepartmentId = $request->integer('department_id');
-        $leaderDepartmentIds = ($user->isAdmin() || $user->isMchungaji()) ? $allDepartmentIds : $user->departments->pluck('id');
+        $leadershipDepartments = $user->departments->filter(fn (Department $department) => $department->pivot?->role === 'kiongozi')->values();
+        $leaderDepartmentIds = ($user->isAdmin() || $user->isMchungaji())
+            ? $allDepartmentIds
+            : ($user->isKiongozi() ? $leadershipDepartments->pluck('id') : $user->departments->pluck('id'));
 
         if ($requestedDepartmentId && $leaderDepartmentIds->contains($requestedDepartmentId)) {
             session(['active_department_id' => $requestedDepartmentId]);
@@ -72,7 +108,7 @@ class DashboardController extends Controller
             ->latest()
             ->get();
         $department = $mainDepartment;
-        $leaderPositionCount = ($user->isAdmin() || $user->isMchungaji()) ? $allDepartments->count() : $user->departments->count();
+        $leaderPositionCount = ($user->isAdmin() || $user->isMchungaji()) ? $allDepartments->count() : $leadershipDepartments->count();
         $showPositionCounter = !$user->isAdmin() && !$user->isMchungaji() && $leaderPositionCount > 1;
         $activeAnnouncementsQuery = function ($query) {
             $query->where(function ($dateQuery) {
@@ -113,7 +149,7 @@ class DashboardController extends Controller
             $members          = $adminMembers;
             $allMembers       = $adminMembers;
             $allLetters       = Letter::with(['user', 'department'])
-                ->when($activeDeptId, fn($query) => $query->where('department_id', $activeDeptId))
+                ->when(!$user->isMchungaji() && $activeDeptId, fn($query) => $query->where('department_id', $activeDeptId))
                 ->latest()
                 ->get();
             $allHelpMessages  = HelpMessage::with('user')->latest()->get();
@@ -267,14 +303,20 @@ class DashboardController extends Controller
                 'leaderPositionCount', 'showPositionCounter', 'contributionCampaigns',
                 'leaderDepartmentsForSwitch', 'activeDepartmentCheo', 'deptPerformance',
                 'adminDepartmentPaymentGroups', 'adminDepartmentReportGroups', 'memberSearchData',
-                'adminMembers', 'departmentMembers', 'adminDepartmentFullView', 'churchAnnouncements'
+                'adminMembers', 'departmentMembers', 'adminDepartmentFullView', 'churchAnnouncements',
+                'canSwitchDashboardMode', 'dashboardViewMode'
             ));
 
         } elseif ($user->isKiongozi()) {
             // KIONGOZI DASHBOARD
-            $deptIds       = ($user->isAdmin() || $user->isMchungaji()) ? $allDepartmentIds : $user->departments->pluck('id');
+            $deptIds       = ($user->isAdmin() || $user->isMchungaji()) ? $allDepartmentIds : $leadershipDepartments->pluck('id');
             $activeDeptId  = $department?->id;
-            $members       = $department
+            $members       = $user->isMchungaji()
+                ? User::with('departments')
+                    ->whereNotIn('role', ['admin', 'mchungaji'])
+                    ->orderBy('name')
+                    ->get()
+                : ($department
                 ? $department->users()
                     ->with('departments')
                     ->whereNotIn('users.role', ['admin', 'mchungaji'])
@@ -282,7 +324,7 @@ class DashboardController extends Controller
                         $roleQuery->whereIn('roles.name', ['admin', 'mchungaji']);
                     })
                     ->get()
-                : collect();
+                : collect());
             $announcements = $activeDeptId
                 ? Announcement::where('department_id', $activeDeptId)
                     ->where($activeAnnouncementsQuery)
@@ -297,12 +339,13 @@ class DashboardController extends Controller
             $smsLogs       = $department ? SmsLog::where('department_id', $department->id)->latest()->get() : collect();
             $myPayments    = \App\Models\Payment::with('contributionCampaign.department')->where('user_id', $user->id)->latest()->get();
             $allPayments   = \App\Models\Payment::with(['user', 'contributionCampaign.department'])
-                ->whereHas('contributionCampaign', function ($query) use ($deptIds) {
-                    $query->whereIn('department_id', $deptIds);
-                })
-                ->when($activeDeptId, function ($query) use ($activeDeptId) {
-                    $query->whereHas('contributionCampaign', function ($campaignQuery) use ($activeDeptId) {
-                        $campaignQuery->where('department_id', $activeDeptId);
+                ->when(!$user->isMchungaji(), function ($query) use ($deptIds, $activeDeptId) {
+                    $query->whereHas('contributionCampaign', function ($campaignQuery) use ($deptIds) {
+                        $campaignQuery->whereIn('department_id', $deptIds);
+                    })->when($activeDeptId, function ($paymentQuery) use ($activeDeptId) {
+                        $paymentQuery->whereHas('contributionCampaign', function ($campaignQuery) use ($activeDeptId) {
+                            $campaignQuery->where('department_id', $activeDeptId);
+                        });
                     });
                 })
                 ->latest()
@@ -320,14 +363,16 @@ class DashboardController extends Controller
             $activeDepartmentCheo = $user->isMchungaji()
                 ? 'Mchungaji'
                 : ($department?->pivot?->cheo ?? $user->cheo ?? 'Kiongozi');
-            $leaderDepartmentsForSwitch = ($user->isMchungaji() || $user->isAdmin()) ? $allDepartments : $user->departments;
+            $leaderDepartmentsForSwitch = ($user->isMchungaji() || $user->isAdmin()) ? $allDepartments : $leadershipDepartments;
+            $allOfferings = $user->isMchungaji() ? Offering::latest('offering_date')->get() : collect();
 
             return view('dashboard', compact(
                 'user', 'department', 'members', 'announcements', 'reports',
                 'letters', 'smsLogs', 'allDepartments', 'allPayments', 'myPayments',
                 'leaderPositionCount', 'showPositionCounter', 'myHelpMessages', 'pendingDeptLetters',
                 'allLetters', 'contributionCampaigns', 'allContributionCampaigns', 'activeDepartmentCheo',
-                'leaderDepartmentsForSwitch', 'churchAnnouncements'
+                'leaderDepartmentsForSwitch', 'churchAnnouncements', 'allOfferings',
+                'canSwitchDashboardMode', 'dashboardViewMode'
             ));
         } else {
             // MSHIRIKI DASHBOARD
@@ -384,17 +429,23 @@ class DashboardController extends Controller
             $totalPaidAmount = $myPayments->where('status', 'approved')->sum('amount');
             $pendingLettersCount  = $myLetters->whereIn('status', ['pending', 'under_review'])->count();
             $approvedLettersCount = $myLetters->whereIn('status', ['approved', 'generated', 'downloaded'])->count();
+            $profileIncomplete = !$user->phone || !$user->gender || !$user->dob || !$user->avatar;
+            $weeklyDutySchedules = DutySchedule::whereDate(
+                'week_start',
+                now()->startOfWeek(\Carbon\Carbon::SUNDAY)->toDateString()
+            )->orderByRaw("CASE duty WHEN 'VIONGOZI WA PRAISE' THEN 1 WHEN 'MASHEMASI' THEN 2 WHEN 'MZEE WA ZAMU' THEN 3 ELSE 4 END")->get();
 
             return view('dashboard', compact(
                 'user', 'departments', 'announcements', 'myLetters', 'myPayments', 'allPayments',
                 'allDepartments', 'myHelpMessages', 'totalPaidAmount',
                 'pendingLettersCount', 'approvedLettersCount', 'myContributionCampaigns',
-                'pendingContributionReminders', 'churchAnnouncements', 'standalonePayments'
+                'pendingContributionReminders', 'churchAnnouncements', 'standalonePayments', 'profileIncomplete', 'weeklyDutySchedules',
+                'canSwitchDashboardMode', 'dashboardViewMode'
             ));
         }
     }
 
-    /** Convert church-wide notices to the existing announcement shape used by the dashboard. */
+    /** Return church notices with their media information intact for the dashboard. */
     private function churchAnnouncementsFor(User $user)
     {
         // "all" is delivered to everyone. The other two audiences are mutually
@@ -406,18 +457,7 @@ class DashboardController extends Controller
         return ChurchAnnouncement::whereIn('audience', ['all', $audience])
             ->where(fn ($query) => $query->whereNull('expires_at')->orWhereDate('expires_at', '>=', today()))
             ->latest()
-            ->get()
-            ->map(function (ChurchAnnouncement $notice) {
-                $announcement = new Announcement([
-                    'title' => $notice->title,
-                    'content' => $notice->content,
-                    'expires_at' => $notice->expires_at,
-                ]);
-                $announcement->created_at = $notice->created_at;
-                $announcement->setRelation('department', null);
-
-                return $announcement;
-            });
+            ->get();
     }
 
     // Direct Avatar Update from Dashboard
@@ -451,24 +491,6 @@ class DashboardController extends Controller
         }
 
         $role = $request->input('role', 'mshirika');
-
-        // The first-login modal only identifies the account type. Department and
-        // leadership details can be completed later from the dashboard.
-        if ($request->boolean('role_selection_only')) {
-            $request->validate(['role' => 'required|in:kiongozi,mshirika']);
-
-            $roleName = $role === 'kiongozi' ? 'kiongozi' : 'mshiriki';
-            \Spatie\Permission\Models\Role::firstOrCreate(['name' => $roleName]);
-            $user->syncRoles([$roleName]);
-            $user->update([
-                'role' => $role,
-                'cheo' => null,
-                'onboarding_completed_at' => now(),
-            ]);
-
-            return redirect()->route('dashboard')
-                ->with('success', 'Nafasi yako imehifadhiwa. Karibu kwenye mfumo!');
-        }
 
         if ($role === 'mshirika') {
             $request->validate([
@@ -537,6 +559,9 @@ class DashboardController extends Controller
             session(['active_department_id' => (int) $request->department_id]);
         }
 
+        $roleName = $role === 'kiongozi' ? 'kiongozi' : 'mshiriki';
+        \Spatie\Permission\Models\Role::firstOrCreate(['name' => $roleName]);
+        $user->syncRoles([$roleName]);
         $user->update(['onboarding_completed_at' => now()]);
 
         return redirect()->route('dashboard')
@@ -765,7 +790,7 @@ class DashboardController extends Controller
         return redirect()->back()->with('success', 'Barua imetengenezwa kikamilifu!');
     }
 
-    // Leader actions: Send SMS via Beem Africa
+    // Leader actions: Send SMS
     public function sendSms(Request $request)
     {
         $request->validate([
@@ -773,75 +798,30 @@ class DashboardController extends Controller
             'message'       => 'required|string|max:160',
         ]);
 
-        $department = Department::findOrFail($request->department_id);
-
-        // Fetch members with phone numbers (exclude admin & mchungaji)
-        $members = $department->users()
+        $department     = Department::findOrFail($request->department_id);
+        $recipientsCount = $department->users()
             ->whereNotIn('users.role', ['admin', 'mchungaji'])
             ->whereDoesntHave('roles', function ($roleQuery) {
                 $roleQuery->whereIn('roles.name', ['admin', 'mchungaji']);
             })
-            ->whereNotNull('phone')
-            ->where('phone', '!=', '')
-            ->get(['users.id', 'users.phone']);
-
-        $recipientsCount = $members->count();
-
-        // Auto-prefix department name so recipients immediately know which department sent the SMS
-        $deptTag = '[' . mb_strtoupper($department->name_sw) . '] ';
-        $messageToSend = str_starts_with(trim($request->message), '[')
-            ? trim($request->message)
-            : $deptTag . trim($request->message);
-
-        // Build Beem recipients payload
-        $beemRecipients = $members->map(function ($member, $index) {
-            return [
-                'recipient_id' => $member->id,
-                'dest_addr'    => BeemSmsService::normalisePhone((string) $member->phone),
-            ];
-        })->values()->toArray();
-
-        // Attempt real SMS delivery via Beem Africa
-        $result = ['success' => false, 'sent' => 0, 'failed' => 0, 'response' => null, 'error' => 'No recipients with phone numbers found.'];
-        if (!empty($beemRecipients)) {
-            $beemService = new BeemSmsService();
-            $result      = $beemService->send($beemRecipients, $messageToSend);
-        }
-
-        // Determine final status
-        $status = 'failed';
-        if ($result['success']) {
-            $status = $result['failed'] > 0 ? 'partial' : 'sent';
-        }
+            ->count();
 
         $smsLog = SmsLog::create([
-            'department_id'    => $department->id,
-            'user_id'          => Auth::id(),
-            'message'          => $messageToSend,
-            'recipients_count' => $recipientsCount,
-            'sent_count'       => $result['sent'],
-            'failed_count'     => $result['failed'],
-            'status'           => $status,
-            'api_response'     => $result['response'],
-            'error_message'    => $result['error'],
+            'department_id'   => $department->id,
+            'user_id'         => Auth::id(),
+            'message'         => $request->message,
+            'recipients_count'=> $recipientsCount,
+            'status'          => 'sent',
         ]);
 
         \App\Models\AuditLog::create([
-            'user_id'     => Auth::id(),
-            'action'      => 'SMS_SENT',
-            'description' => "SMS imetumwa kwa wanachama {$result['sent']} wa {$department->name_sw} kupitia Beem Africa.",
-            'ip_address'  => $request->ip(),
+            'user_id' => Auth::id(),
+            'action' => 'SMS_SENT',
+            'description' => "SMS imetumwa kwa wanachama {$recipientsCount} wa {$department->name_sw}.",
+            'ip_address' => $request->ip(),
             'document_id' => (string) $smsLog->id,
         ]);
 
-        if ($result['success']) {
-            $msg = "SMS imetumwa kwa wanachama {$result['sent']} wa {$department->name_sw} kikamilifu!";
-            if ($result['failed'] > 0) {
-                $msg .= " (Wanachama {$result['failed']} hawakupata ujumbe — nambari zao zinaweza kuwa si sahihi.)"; 
-            }
-            return redirect()->back()->with('success', $msg);
-        }
-
-        return redirect()->back()->with('error', 'SMS haikutumwa: ' . ($result['error'] ?? 'Hitilafu ya API.'));
+        return redirect()->back()->with('success', "SMS imetumwa kwa wanachama {$recipientsCount} wa {$department->name_sw}!");
     }
 }

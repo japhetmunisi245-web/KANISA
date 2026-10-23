@@ -181,6 +181,44 @@
         }
         .role-kiongozi { background: #fef3c7; color: #92400e; }
         .role-mshirika { background: #dbeafe; color: #1e40af; }
+        .notification-wrap { position: relative; }
+        .notification-trigger {
+            border: 1px solid #c7d2fe;
+            border-radius: 10px;
+            background: #eef2ff;
+            color: #4338ca;
+            padding: 8px 11px;
+            font: inherit;
+            font-size: .82rem;
+            font-weight: 800;
+            cursor: pointer;
+        }
+        .notification-trigger:hover { background: #e0e7ff; }
+        .notification-count { margin-left: 5px; background: #4f46e5; color: #fff; border-radius: 999px; padding: 1px 6px; font-size: .7rem; }
+        .notification-panel {
+            display: none;
+            position: absolute;
+            top: calc(100% + 10px);
+            left: 0;
+            width: min(440px, calc(100vw - 32px));
+            max-height: min(620px, calc(100vh - 92px));
+            overflow: auto;
+            padding: 16px;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            background: #fff;
+            box-shadow: 0 18px 42px rgba(15,23,42,.2);
+            z-index: 80;
+        }
+        .notification-panel.open { display: block; }
+        .notification-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+        .notification-panel-head strong { color: var(--text); font-size: 1rem; }
+        .notification-close { border: 0; background: transparent; color: var(--text-muted); font-size: 1.35rem; cursor: pointer; }
+        .notification-item { padding: 14px 0; border-bottom: 1px solid var(--border); }
+        .notification-item:last-child { border-bottom: 0; }
+        .notification-item-title { font-weight: 800; color: var(--text); }
+        .notification-item-content { margin: 5px 0; color: var(--text-muted); line-height: 1.45; white-space: pre-line; }
+        .notification-item-meta { font-size: .74rem; color: var(--text-muted); }
 
         /* ── CONTENT PANELS ── */
         .content { padding: 28px 32px; flex: 1; }
@@ -779,6 +817,10 @@
             .topbar-right { gap: 8px; }
             .topbar-user { display: none; }
             .topbar-role { font-size: .68rem; padding: 3px 8px; white-space: nowrap; }
+            .notification-trigger { padding: 8px 9px; font-size: 0; }
+            .notification-trigger i { font-size: .95rem; }
+            .notification-count { font-size: .68rem; }
+            .notification-panel { position: fixed; top: 72px; left: 16px; }
             .content { padding: 18px 12px; }
             .stats-grid { grid-template-columns: 1fr; }
             .card { padding: 16px; border-radius: 12px; }
@@ -866,6 +908,11 @@
         <a class="nav-item" onclick="showPanel('members',this)">
             <span class="nav-icon"><i class="fa-solid fa-users"></i></span> Wanachama
         </a>
+        @if($user->isMchungaji())
+        <a class="nav-item" onclick="showPanel('members',this)">
+            <span class="nav-icon"><i class="fa-solid fa-building-columns"></i></span> Idara Zote
+        </a>
+        @endif
         <a class="nav-item" onclick="showPanel('committees',this)">
             <span class="nav-icon"><i class="fa-solid fa-sitemap"></i></span> Kamati / Idara
         </a>
@@ -892,6 +939,11 @@
         <a class="nav-item" onclick="showPanel('members',this)">
             <span class="nav-icon"><i class="fa-solid fa-users"></i></span> Wanachama
         </a>
+        @if($user->isMchungaji())
+        <a class="nav-item" onclick="showPanel('members',this)">
+            <span class="nav-icon"><i class="fa-solid fa-building-columns"></i></span> Idara Zote
+        </a>
+        @endif
         <a class="nav-item" onclick="showPanel('announcements',this)">
             <span class="nav-icon"><i class="fa-solid fa-bullhorn"></i></span> Matangazo
         </a>
@@ -934,6 +986,9 @@
             <span class="badge">{{ $pendingHelp }}</span>
         @endif
     </a>
+    <a class="nav-item" onclick="showPanel('account-settings',this)">
+        <span class="nav-icon"><i class="fa-solid fa-gear"></i></span> {{ __('Mipangilio') }}
+    </a>
 
     <div class="sidebar-spacer"></div>
 
@@ -953,16 +1008,67 @@
 {{-- ═══════════════════════════════════════════ --}}
 <div class="main">
 
+    @php
+        $departmentAnnouncements = collect($announcements ?? collect())
+            ->filter(fn ($announcement) => ! $announcement instanceof \App\Models\ChurchAnnouncement && ! empty($announcement->department_id));
+        $churchNotices = collect($churchAnnouncements ?? collect());
+        $displayAnnouncements = $departmentAnnouncements
+            ->merge($churchNotices)
+            ->sortByDesc('created_at')
+            ->values();
+        $notificationAnnouncements = $displayAnnouncements;
+        $notificationsReadAt = session('notifications_read_at_'.$user->id);
+        $unreadNotificationCount = $notificationsReadAt
+            ? $notificationAnnouncements->filter(fn ($announcement) => $announcement->created_at?->gt(\Illuminate\Support\Carbon::parse($notificationsReadAt)))->count()
+            : $notificationAnnouncements->count();
+    @endphp
+
     {{-- TOP BAR --}}
     <div class="topbar">
         <button type="button" class="mobile-menu-btn" onclick="toggleMobileSidebar()" aria-label="Fungua menu" aria-expanded="false">
             <i class="fa-solid fa-bars"></i>
         </button>
-        <div class="topbar-title" id="topbar-title">Overview</div>
+        <div class="notification-wrap">
+            <button type="button" class="notification-trigger" id="notification-trigger" aria-expanded="false" aria-controls="notification-panel">
+                <i class="fa-solid fa-bell"></i> <span class="notification-trigger-text">Taarifa</span><span class="notification-count">{{ $unreadNotificationCount }}</span>
+            </button>
+            <aside class="notification-panel" id="notification-panel" aria-label="Taarifa na matangazo">
+                <div class="notification-panel-head">
+                    <strong>Taarifa na Matangazo</strong>
+                    <button type="button" class="notification-close" id="notification-close" aria-label="Funga">&times;</button>
+                </div>
+                @forelse($notificationAnnouncements as $announcement)
+                    <article class="notification-item">
+                        <div class="notification-item-title">{{ $announcement->title }}</div>
+                        <div class="notification-item-content">{{ $announcement->content }}</div>
+                        @if($announcement instanceof \App\Models\ChurchAnnouncement && $announcement->media_path)
+                            <a href="{{ asset('storage/'.$announcement->media_path) }}" target="_blank" rel="noopener" class="notification-item-content" style="display:inline-block;margin-top:6px;color:var(--primary);font-weight:700;">Fungua {{ $announcement->media_type === 'video' ? 'video' : 'picha' }} ya tangazo</a>
+                        @endif
+                        <div class="notification-item-meta">
+                            {{ optional($announcement->created_at)->format('d/m/Y H:i') }}
+                            &middot; {{ $announcement instanceof \App\Models\ChurchAnnouncement ? 'Kanisa' : ($announcement->department->name_sw ?? 'Kanisa') }}
+                        </div>
+                    </article>
+                @empty
+                    <p class="notification-item-content">Hakuna taarifa au tangazo kwa sasa.</p>
+                @endforelse
+            </aside>
+        </div>
+        <div class="topbar-title" id="topbar-title">Overview &amp; Takwimu</div>
         <div class="topbar-right">
             <span class="topbar-role {{ $user->isAdmin() || $user->isMchungaji() || $user->isKiongozi() ? 'role-kiongozi' : 'role-mshirika' }}">
                 {{ $user->isAdmin() ? 'Super Admin' : ($user->isMchungaji() ? 'Mchungaji' : ($user->isKiongozi() ? 'Kiongozi' : 'Mshirika')) }}
             </span>
+            @if($canSwitchDashboardMode ?? false)
+                <form method="POST" action="{{ route('dashboard.view-mode') }}" style="margin:0;">
+                    @csrf
+                    <input type="hidden" name="mode" value="{{ ($dashboardViewMode ?? 'leader') === 'member' ? 'leader' : 'member' }}">
+                    <button type="submit" class="btn btn-outline btn-sm" title="Badilisha mwonekano bila kubadilisha akaunti">
+                        <i class="fa-solid fa-repeat"></i>
+                        {{ ($dashboardViewMode ?? 'leader') === 'member' ? 'Fungua Kiongozi' : 'Fungua Mshirika' }}
+                    </button>
+                </form>
+            @endif
             <button type="button" class="topbar-avatar" onclick="document.getElementById('userDetailsModal').classList.add('open')" title="Tazama taarifa zako">
                 @if($user->avatar)
                     <img src="{{ asset('storage/'.$user->avatar) }}" alt="{{ $user->name }}">
@@ -983,30 +1089,10 @@
         @if(session('error'))
             <div class="flash flash-error"><i class="fa-solid fa-triangle-exclamation"></i> {{ session('error') }}</div>
         @endif
-
-        @php
-            $noticeAudience = ($user->isAdmin() || $user->isMchungaji() || $user->isKiongozi()) ? 'leaders' : 'members';
-            $visibleChurchNotices = \App\Models\ChurchAnnouncement::whereIn('audience', ['all', $noticeAudience])
-                ->where(fn ($query) => $query->whereNull('expires_at')->orWhereDate('expires_at', '>=', today()))
-                ->latest()->get();
-            $topAnnouncements = ($announcements ?? collect())->take(8);
-        @endphp
-        @if($topAnnouncements->isNotEmpty())
-            <div class="announcement-ticker" aria-label="Matangazo mapya">
-                <div class="announcement-ticker-label">
-                    <i class="fa-solid fa-bullhorn"></i> Matangazo
-                </div>
-                <div class="announcement-ticker-track">
-                    <div class="announcement-ticker-line">
-                        @foreach($topAnnouncements as $ann)
-                            <span class="ticker-item">
-                                <i class="fa-solid fa-circle" style="font-size:.42rem;color:#10b981;"></i>
-                                {{ $ann->title }}
-                                <small>{{ $ann->department->name_sw ?? 'Kanisa' }}</small>
-                            </span>
-                        @endforeach
-                    </div>
-                </div>
+        @if(($profileIncomplete ?? false) && $user->isMshirika())
+            <div class="flash" style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;display:flex;align-items:center;justify-content:space-between;gap:14px;">
+                <span><i class="fa-solid fa-circle-info"></i> Kumbusho: tafadhali jaza taarifa zako binafsi ili ofisi ya Katibu iwe na kumbukumbu kamili.</span>
+                <button type="button" class="btn btn-amber btn-sm" onclick="document.getElementById('personalDetailsModal').classList.add('open')">Jaza taarifa</button>
             </div>
         @endif
 
@@ -1014,25 +1100,6 @@
         {{-- PANEL: OVERVIEW                        --}}
         {{-- ══════════════════════════════════════ --}}
         <div class="panel active" id="panel-overview">
-
-            @if($visibleChurchNotices->isNotEmpty())
-                <section class="card" style="margin-bottom:20px;border-left:4px solid #4f46e5;">
-                    <div class="card-title">
-                        <span class="icon-box" style="background:#eef2ff;color:#4f46e5;"><i class="fa-solid fa-church"></i></span>
-                        Matangazo ya Kanisa
-                    </div>
-                    @foreach($visibleChurchNotices as $notice)
-                        <div class="item-card green" style="margin-bottom:10px;">
-                            <div class="item-card-header">
-                                <span class="item-card-title">{{ $notice->title }}</span>
-                                <span class="item-card-date">{{ $notice->created_at->format('d/m/Y H:i') }}</span>
-                            </div>
-                            <div class="item-card-body">{{ $notice->content }}</div>
-                            <span class="badge-pill badge-mshirika" style="margin-top:8px;display:inline-block;">Tangazo la Kanisa</span>
-                        </div>
-                    @endforeach
-                </section>
-            @endif
 
             @if(!$user->isKiongozi() && ($pendingContributionReminders ?? collect())->isNotEmpty())
                 <div class="contribution-reminder-grid">
@@ -1396,14 +1463,32 @@
                     </div>
                 </div>
 
+                <section class="card" style="border-left:4px solid #10b981;margin:0 0 24px;padding:18px;">
+                    <div class="card-title" style="margin-bottom:12px;">
+                        Viongozi wa Zamu ya Wiki
+                        <small style="margin-left:auto;color:var(--text-muted);font-weight:600;">Jumapili hadi Jumapili</small>
+                    </div>
+                    @forelse(($weeklyDutySchedules ?? collect()) as $schedule)
+                        <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 0;border-bottom:{{ $loop->last ? '0' : '1px solid var(--border)' }};">
+                            <div><strong>{{ $schedule->duty }}</strong><div style="font-size:.86rem;color:var(--text-muted);margin-top:3px;">{{ $schedule->person_name }}</div></div>
+                            @if($schedule->notes)
+                                <a href="tel:{{ $schedule->notes }}" style="font-size:.84rem;font-weight:700;color:var(--accent);text-decoration:none;">{{ $schedule->notes }}</a>
+                            @endif
+                        </div>
+                    @empty
+                        <p style="color:var(--text-muted);margin:0;">Zamu za wiki hii bado hazijachapishwa.</p>
+                    @endforelse
+                </section>
+
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-                    <h4 style="font-size:1rem;font-weight:700;"><i class="fa-solid fa-building-columns" style="margin-right:6px;color:var(--accent);"></i> Idara Zangu</h4>
+                    <h4 style="font-size:1rem;font-weight:700;">Idara Zangu</h4>
                     @if($memberCount < $memberMax)
                         <button onclick="document.getElementById('addDeptModal').classList.add('open')" class="btn btn-primary btn-sm">
-                            <i class="fa-solid fa-plus"></i> Jiunge na Idara Nyingine
+                            Jiunge na Idara Nyingine
                         </button>
                     @endif
                 </div>
+
                 <div class="dept-card-list" style="margin-bottom:24px;">
                     @forelse($departments as $dept)
                         @php
@@ -1577,10 +1662,9 @@
                 {{-- Recent Announcements preview --}}
                 <div class="card">
                     <div class="card-title">
-                        <span class="icon-box" style="background:#d1fae5;color:#059669;"><i class="fa-solid fa-bullhorn"></i></span>
                         Matangazo ya Hivi Karibuni
                     </div>
-                    @forelse($announcements->take(3) as $ann)
+                    @forelse($displayAnnouncements->take(3) as $ann)
                         <div class="item-card green">
                             <div class="item-card-header">
                                 <span class="item-card-title">{{ $ann->title }}</span>
@@ -1722,11 +1806,11 @@
             {{-- Header --}}
             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:22px;">
                 <div>
-                    <h4 style="font-size:1.1rem;font-weight:700;"><i class="fa-solid fa-users" style="margin-right:6px;color:var(--accent);"></i> Wanachama wa Idara</h4>
-                    <p style="font-size:.82rem;color:var(--text-muted);margin-top:2px;">{{ $department->name_sw ?? '' }} · Jumla: <strong>{{ $members->count() }}</strong></p>
+                    <h4 style="font-size:1.1rem;font-weight:700;"><i class="fa-solid fa-users" style="margin-right:6px;color:var(--accent);"></i> {{ $user->isMchungaji() ? 'Wanachama wa Kanisa na Idara' : 'Wanachama wa Idara' }}</h4>
+                    <p style="font-size:.82rem;color:var(--text-muted);margin-top:2px;">{{ $user->isMchungaji() ? 'Idara zote' : ($department->name_sw ?? '') }} · Jumla: <strong>{{ $members->count() }}</strong></p>
                 </div>
                 <div class="dept-filter-bar">
-                    @if($user->isAdmin())
+                    @if($user->isAdmin() || $user->isMchungaji())
                         <select id="memberDepartmentFilter" class="form-control" style="width:260px;" onchange="filterMembersByDepartment(this.value, this.options[this.selectedIndex].text)">
                             <option value="all">Idara zote</option>
                             @foreach(($allDepartments ?? collect()) as $filterDept)
@@ -1782,13 +1866,28 @@
                     {{-- Name & Role --}}
                     <div class="member-card-name">{{ $m->name }}</div>
                     <span class="badge-pill {{ $m->role === 'kiongozi' ? 'badge-kiongozi' : 'badge-mshirika' }}">
-                        {{ $m->pivot->cheo ?? ucfirst($m->role) }}
+                        {{ $m->pivot?->cheo ?? ucfirst($m->role) }}
                     </span>
 
                     {{-- Contact info --}}
                     <div class="member-card-email"><i class="fa-solid fa-envelope" style="margin-right:4px;color:var(--accent)"></i>{{ $m->email }}</div>
                     @if($m->phone)
                         <div class="member-card-phone"><i class="fa-solid fa-phone" style="margin-right:4px;color:var(--accent-green)"></i>{{ $m->phone }}</div>
+                    @endif
+                    @if($user->isMchungaji())
+                        <details style="margin-top:10px;text-align:left;border-top:1px solid var(--border);padding-top:9px;">
+                            <summary style="cursor:pointer;color:var(--accent);font-weight:800;font-size:.78rem;">Tazama taarifa kamili</summary>
+                            <div style="display:grid;gap:5px;margin-top:9px;font-size:.75rem;color:var(--text-muted);">
+                                <div><strong style="color:var(--text);">Idara:</strong> {{ $m->departments->pluck('name_sw')->join(', ') ?: 'Hana idara' }}</div>
+                                <div><strong style="color:var(--text);">Jinsia:</strong> {{ $m->gender === 'male' ? 'Mwanaume' : ($m->gender === 'female' ? 'Mwanamke' : 'Haijawekwa') }}</div>
+                                <div><strong style="color:var(--text);">Hali ya ndoa:</strong> {{ $m->marital_status === 'married' ? 'Nimeoa / Nimeolewa' : ($m->marital_status === 'single' ? 'Sijaoa / Sijaolewa' : ($m->marital_status === 'widowed' ? 'Mjane' : 'Haijawekwa')) }}</div>
+                                <div><strong style="color:var(--text);">Mwenza / Watoto:</strong> {{ $m->spouse_names ?: '—' }} / {{ $m->children_count ?? 0 }}</div>
+                                <div><strong style="color:var(--text);">Kuokoka / Kubatizwa:</strong> {{ $m->saved_date?->format('d/m/Y') ?? '—' }} / {{ $m->baptism_date?->format('d/m/Y') ?? '—' }}</div>
+                                <div><strong style="color:var(--text);">Huduma:</strong> {{ $m->service ?: 'Haijawekwa' }}</div>
+                                <div><strong style="color:var(--text);">Elimu:</strong> {{ $m->education ?: 'Haijawekwa' }}</div>
+                                <div><strong style="color:var(--text);">Mtaa / Kata:</strong> {{ collect([$m->street_name, $m->ward])->filter()->join(', ') ?: 'Haijawekwa' }}</div>
+                            </div>
+                        </details>
                     @endif
                     @if($user->isAdmin())
                         <div style="font-size:.72rem;color:var(--text-muted);line-height:1.35;">
@@ -1843,17 +1942,7 @@
                     <span class="icon-box" style="background:#d1fae5;color:#059669;"><i class="fa-solid fa-bullhorn"></i></span>
                     {{ $user->isKiongozi() ? 'Matangazo ya Idara na Kanisa' : 'Matangazo ya Idara Zangu na Kanisa' }}
                 </div>
-                @foreach($visibleChurchNotices as $notice)
-                    <div class="item-card green">
-                        <div class="item-card-header">
-                            <span class="item-card-title">{{ $notice->title }}</span>
-                            <span class="item-card-date">{{ $notice->created_at->format('d/m/Y H:i') }}</span>
-                        </div>
-                        <div class="item-card-body">{{ $notice->content }}</div>
-                        <span class="badge-pill badge-mshirika" style="margin-top:8px;display:inline-block;">Tangazo la Katibu wa Kanisa</span>
-                    </div>
-                @endforeach
-                @forelse($announcements as $ann)
+                @forelse($displayAnnouncements as $ann)
                     <div class="item-card green">
                         <div class="item-card-header">
                             <span class="item-card-title">{{ $ann->title }}</span>
@@ -1865,9 +1954,20 @@
                             </span>
                         </div>
                         <div class="item-card-body">{{ $ann->content }}</div>
-                        @if(!$user->isKiongozi())
-                            <span class="badge-pill badge-mshirika" style="margin-top:8px;display:inline-block;">{{ $ann->department->name_sw ?? 'Tangazo la Kanisa' }}</span>
+                        @if($ann instanceof \App\Models\ChurchAnnouncement && $ann->media_path)
+                            <div style="margin-top:12px;">
+                                @if($ann->media_type === 'video')
+                                    <video controls preload="metadata" style="display:block;max-width:100%;max-height:300px;border-radius:8px;" src="{{ asset('storage/'.$ann->media_path) }}"></video>
+                                    <a href="{{ asset('storage/'.$ann->media_path) }}" target="_blank" rel="noopener" style="display:inline-block;margin-top:7px;">Fungua video kwa ukubwa kamili</a>
+                                @else
+                                    <a href="{{ asset('storage/'.$ann->media_path) }}" target="_blank" rel="noopener" title="Fungua picha kwa ukubwa kamili">
+                                        <img src="{{ asset('storage/'.$ann->media_path) }}" alt="Picha ya tangazo: {{ $ann->title }}" style="display:block;max-width:100%;max-height:300px;object-fit:contain;border-radius:8px;">
+                                    </a>
+                                    <a href="{{ asset('storage/'.$ann->media_path) }}" target="_blank" rel="noopener" style="display:inline-block;margin-top:7px;">Fungua picha kwa ukubwa kamili</a>
+                                @endif
+                            </div>
                         @endif
+                        <span class="badge-pill badge-mshirika" style="margin-top:8px;display:inline-block;">{{ $ann instanceof \App\Models\ChurchAnnouncement ? 'Tangazo la Kanisa' : ($ann->department->name_sw ?? 'Tangazo la Kanisa') }}</span>
                     </div>
                 @empty
                     <p style="color:var(--text-muted);text-align:center;padding:20px;">Hakuna matangazo kwa sasa.</p>
@@ -2121,22 +2221,10 @@
                 <form action="{{ route('sms.send') }}" method="POST">
                     @csrf
                     <input type="hidden" name="department_id" value="{{ $department->id ?? '' }}">
-
-                    <div style="margin-bottom:14px;padding:10px 14px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;font-size:0.85rem;color:#5b21b6;display:flex;align-items:center;gap:10px;">
-                        <i class="fa-solid fa-tag" style="font-size:1.1rem;color:#7c3aed;"></i>
-                        <div>
-                            <div>Utambulisho unaotangulia ujumbe: <strong style="color:#6d28d9;">[{{ mb_strtoupper($department->name_sw ?? 'KANISA') }}]</strong></div>
-                            <small style="color:#7c3aed;opacity:0.9;">Wapokeaji wataona ujumbe unatoka kwa <strong>KANISA</strong> ukiwa na utambulisho wa idara hii.</small>
-                        </div>
-                    </div>
-
                     <div class="form-group">
-                        <label class="form-label">Ujumbe wa SMS <span style="color:var(--text-muted);font-weight:400;">(Hadi herufi 160)</span></label>
+                        <label class="form-label">Ujumbe wa SMS <span style="color:var(--text-muted);font-weight:400;">(Max 160 herufi)</span></label>
                         <textarea name="message" class="form-control" rows="4" maxlength="160" required placeholder="Andika ujumbe wako hapa..." id="smsText" oninput="updateSmsCount()"></textarea>
-                        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:.78rem;color:var(--text-muted);">
-                            <span id="smsPreviewNote" style="font-style:italic;">Mfano: [{{ mb_strtoupper($department->name_sw ?? 'KANISA') }}] Ujumbe wako...</span>
-                            <span><span id="smsCount">0</span>/160</span>
-                        </div>
+                        <p style="text-align:right;font-size:.78rem;color:var(--text-muted);margin-top:4px;"><span id="smsCount">0</span>/160</p>
                     </div>
                     <button type="submit" class="btn btn-primary"><i class="fa-solid fa-paper-plane"></i> Tuma SMS</button>
                 </form>
@@ -2153,14 +2241,8 @@
                             <span class="item-card-date">{{ $sms->created_at->format('d/m/Y H:i') }}</span>
                         </div>
                         <div class="item-card-body" style="color:var(--text-muted)">
-                            Waliopokea: <strong>{{ $sms->sent_count ?? $sms->recipients_count }}</strong>
-                            @if(isset($sms->failed_count) && $sms->failed_count > 0)
-                                · <span style="color:#ef4444;">Walioshindwa: <strong>{{ $sms->failed_count }}</strong></span>
-                            @endif
-                            · <span class="badge-pill {{ $sms->status === 'sent' ? 'limit-ok' : ($sms->status === 'partial' ? 'limit-warn' : 'limit-warn') }}" style="{{ $sms->status === 'failed' ? 'background:#fee2e2;color:#dc2626;' : '' }}">{{ ucfirst($sms->status) }}</span>
-                            @if(!empty($sms->error_message))
-                                <div style="font-size:0.75rem;color:#ef4444;margin-top:4px;"><i class="fa-solid fa-triangle-exclamation"></i> {{ $sms->error_message }}</div>
-                            @endif
+                            Waliopokea: <strong>{{ $sms->recipients_count }}</strong> ·
+                            <span class="badge-pill {{ $sms->status === 'sent' ? 'limit-ok' : 'limit-warn' }}">{{ ucfirst($sms->status) }}</span>
                         </div>
                     </div>
                 @empty
@@ -2191,10 +2273,35 @@
                     </div>
                 </div>
 
-                <div class="card" style="padding:0;overflow:hidden;">
+                @if($user->isMchungaji())
+                <div class="card" style="padding:0;overflow:hidden;margin-top:20px;">
                     <div style="padding:16px 20px;border-bottom:1px solid var(--border);font-weight:700;display:flex;align-items:center;justify-content:space-between;">
-                        <span><i class="fa-solid fa-bullseye" style="margin-right:6px;color:var(--accent);"></i> Michango ya Idara</span>
-                        <span style="font-size:.8rem;color:var(--text-muted);font-weight:400;">Jumla: {{ $visibleCampaigns->count() }}</span>
+                        <span><i class="fa-solid fa-hand-holding-heart" style="margin-right:6px;color:#d97706;"></i> Sadaka zote za Kanisa</span>
+                        <span style="font-size:.8rem;color:var(--text-muted);font-weight:400;">Jumla: {{ ($allOfferings ?? collect())->count() }}</span>
+                        <span style="display:flex;gap:8px;"><a href="{{ route('church-office.offerings.report.pdf', ['period' => 'week', 'date' => now()->format('Y-m-d')]) }}" target="_blank" style="font-size:.8rem;color:#13794d;text-decoration:none;">PDF ya wiki</a><a href="{{ route('church-office.offerings.report.pdf', ['period' => 'month', 'date' => now()->format('Y-m-d')]) }}" target="_blank" style="font-size:.8rem;color:#13794d;text-decoration:none;">PDF ya mwezi</a></span>
+                    </div>
+                    <table class="data-table">
+                        <thead><tr><th style="padding-left:20px;">Aina ya Sadaka</th><th>Kiasi</th><th>Njia ya Malipo</th><th>Tarehe</th></tr></thead>
+                        <tbody>@forelse(($allOfferings ?? collect()) as $offering)<tr><td style="padding-left:20px;font-weight:700;">{{ $offering->offering_type }}</td><td style="font-weight:800;color:#166534;">Tsh {{ number_format($offering->amount, 2) }}</td><td>{{ $offering->payment_method }}</td><td>{{ $offering->offering_date->format('d/m/Y') }}</td></tr>@empty<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:20px;">Hakuna sadaka iliyorekodiwa bado.</td></tr>@endforelse</tbody>
+                    </table>
+                </div>
+                @endif
+
+                <div class="card" style="margin:20px 0;">
+                    <div class="card-title"><span class="icon-box" style="background:#e0e7ff;color:#4338ca;"><i class="fa-solid fa-building-columns"></i></span> Chagua Idara Kuona Michango Yake</div>
+                    <p style="font-size:.84rem;color:var(--text-muted);margin:-4px 0 15px;">Bofya idara ili kuona michango na waliotoa ndani ya idara hiyo pekee.</p>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;">
+                        @foreach(($allDepartments ?? collect()) as $contributionDepartment)
+                            @php $departmentCampaignCount = $visibleCampaigns->where('department_id', $contributionDepartment->id)->count(); @endphp
+                            <button type="button" class="btn btn-outline" style="justify-content:flex-start;text-align:left;padding:14px;min-height:74px;" onclick="showDepartmentContributions({{ $contributionDepartment->id }}, @json($contributionDepartment->name_sw))"><span><i class="fa-solid fa-building-columns" style="color:var(--accent);margin-right:7px;"></i>{{ $contributionDepartment->name_sw }}</span><br><small style="color:var(--text-muted);font-weight:600;margin-left:22px;">Michango: {{ $departmentCampaignCount }} · Bofya kufungua</small></button>
+                        @endforeach
+                    </div>
+                </div>
+
+                <div class="card" id="departmentContributionDetails" style="padding:0;overflow:hidden;display:none;">
+                    <div style="padding:16px 20px;border-bottom:1px solid var(--border);font-weight:700;display:flex;align-items:center;justify-content:space-between;">
+                        <span><i class="fa-solid fa-bullseye" style="margin-right:6px;color:var(--accent);"></i> Michango ya <span id="selectedContributionDepartment"></span></span>
+                        <span id="selectedContributionCount" style="font-size:.8rem;color:var(--text-muted);font-weight:400;"></span>
                     </div>
                     <div style="display:flex;flex-direction:column;">
                         @forelse($visibleCampaigns as $campaign)
@@ -2205,7 +2312,7 @@
                                 $campaignTarget = (float) $campaign->amount_per_member * max(1, $campaignMembers->count());
                                 $campaignPercent = $campaignTarget > 0 ? min(100, round(($campaignPaid / $campaignTarget) * 100)) : 0;
                             @endphp
-                            <div class="contribution-record" data-campaign-record>
+                            <div class="contribution-record" data-campaign-record data-department-id="{{ $campaign->department_id }}">
                                 <div style="display:grid;grid-template-columns:2fr 1.2fr 1.2fr .8fr 1fr auto;gap:16px;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border);">
                                     <div>
                                         <div style="font-weight:900;color:var(--text);">{{ $campaign->title }}</div>
@@ -2289,12 +2396,13 @@
                         @empty
                             <div style="text-align:center;color:var(--text-muted);padding:28px;">Hakuna mchango wa idara ulioanzishwa bado.</div>
                         @endforelse
+                        <div id="noDepartmentContributions" style="display:none;text-align:center;color:var(--text-muted);padding:28px;">Hakuna mchango ulioanzishwa kwenye idara hii.</div>
                     </div>
                 </div>
 
-                <div class="card" style="padding:0;overflow:hidden;">
-                    <div style="padding:16px 20px;border-bottom:1px solid var(--border);font-weight:700;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-                        <span><i class="fa-solid fa-list-check" style="margin-right:6px;color:var(--accent);"></i> Latest Members Waliotoa Michango ya Idara</span>
+                <div class="card" style="display:none;">
+                    <div>
+                        <span>Latest Members Waliotoa Michango ya Idara</span>
                         <div style="display:flex;align-items:center;gap:10px;">
                             <div style="position:relative;">
                                 <i class="fa-solid fa-magnifying-glass" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:.8rem;"></i>
@@ -2617,6 +2725,14 @@
         {{-- ══════════════════════════════════════ --}}
         {{-- PANEL: TAARIFA ZANGU (Mshirika Profile) --}}
         {{-- ══════════════════════════════════════ --}}
+        <div class="panel" id="panel-account-settings">
+            <div style="margin-bottom:18px;"><h3 style="font-size:1.3rem;font-weight:800;color:var(--text);">{{ __('Mipangilio ya Akaunti') }}</h3><p style="color:var(--text-muted);margin-top:4px;">{{ __('Simamia taarifa za akaunti yako.') }}</p></div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;">
+                <section class="card"><h4 style="font-size:1rem;font-weight:800;margin-bottom:14px;">{{ __('Taarifa za Akaunti') }}</h4><form action="{{ route('profile.update') }}" method="POST" enctype="multipart/form-data">@csrf @method('PATCH')<input type="hidden" name="return_to_dashboard" value="1"><div class="form-group"><label class="form-label">{{ __('Jina la mtumiaji') }}</label><input class="form-control" name="name" value="{{ $user->name }}" required></div><div class="form-group"><label class="form-label">{{ __('Barua pepe') }}</label><input class="form-control" type="email" name="email" value="{{ $user->email }}" required></div><div class="form-group"><label class="form-label">{{ __('Namba ya simu') }}</label><input class="form-control" name="phone" value="{{ $user->phone }}"></div><div class="form-group"><label class="form-label">{{ __('Picha ya mtumiaji') }}</label><input class="form-control" type="file" name="avatar" accept="image/*"></div><div class="form-group"><label class="form-label">{{ __('Lugha ya mfumo') }}</label><select class="form-control" name="language"><option value="sw" @selected(($user->language ?? 'sw') === 'sw')>{{ __('Kiswahili') }}</option><option value="en" @selected($user->language === 'en')>English</option></select></div><button class="btn btn-primary" style="width:100%;">{{ __('Hifadhi mabadiliko') }}</button></form></section>
+                <section class="card"><h4 style="font-size:1rem;font-weight:800;margin-bottom:14px;">{{ __('Kubadilisha Nenosiri') }}</h4><form method="POST" action="{{ route('password.update') }}">@csrf @method('PUT')<div class="form-group"><label class="form-label">{{ __('Nenosiri la sasa') }}</label><input class="form-control" type="password" name="current_password" required></div><div class="form-group"><label class="form-label">{{ __('Nenosiri jipya') }}</label><input class="form-control" type="password" name="password" required></div><div class="form-group"><label class="form-label">{{ __('Rudia nenosiri jipya') }}</label><input class="form-control" type="password" name="password_confirmation" required></div><button class="btn btn-primary" style="width:100%;">{{ __('Badilisha nenosiri') }}</button></form><hr style="border:0;border-top:1px solid var(--border);margin:20px 0;"><button type="button" class="btn btn-outline" style="width:100%;" onclick="document.getElementById('personalDetailsModal').classList.add('open')">{{ __('Badilisha taarifa za akaunti') }}</button></section>
+            </div>
+        </div>{{-- /panel-account-settings --}}
+
         @if(!$user->isAdmin() && !$user->isMchungaji() && !$user->isKiongozi())
         <div class="panel" id="panel-profile">
             <div class="card" style="max-width:680px;margin:0 auto;">
@@ -2645,6 +2761,9 @@
                     </button>
                 </div>
 
+                <div style="text-align:center;margin:0 0 22px;"><strong style="font-size:1.12rem;color:var(--text);">{{ $user->name }}</strong><br><small style="color:var(--text-muted);">Taarifa binafsi huhifadhiwa kwa siri na huonekana kwa Katibu wa Kanisa pekee.</small><br><button type="button" class="btn btn-outline btn-sm" style="margin-top:10px;" onclick="document.getElementById('personalDetailsModal').classList.add('open')"><i class="fa-solid fa-pen"></i> Jaza / hariri taarifa binafsi</button></div>
+
+                @if(!$user->isMshirika())
                 {{-- Personal Info Grid --}}
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
                     <div style="background:#f8fafc;border-radius:12px;padding:14px 16px;border:1.5px solid var(--border);">
@@ -2673,6 +2792,7 @@
                     </div>
                 </div>
 
+                @endif
                 {{-- Departments --}}
                 <div style="margin-bottom:20px;">
                     <div style="font-size:.82rem;font-weight:700;color:var(--text);margin-bottom:10px;display:flex;align-items:center;gap:8px;">
@@ -2689,6 +2809,7 @@
                     </div>
                 </div>
 
+                @if(!$user->isMshirika())
                 {{-- Payment summary --}}
                 <div style="background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1.5px solid #bbf7d0;border-radius:12px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;">
                     <div>
@@ -2697,6 +2818,7 @@
                     </div>
                     <i class="fa-solid fa-coins" style="font-size:2rem;color:#16a34a;opacity:.5;"></i>
                 </div>
+                @endif
             </div>
         </div>
         @endif
@@ -2720,13 +2842,14 @@
             </div>
             <div>
                 <div style="font-size:1.12rem;font-weight:800;color:var(--text);">{{ $user->name }}</div>
-                <div style="font-size:.84rem;color:var(--text-muted);word-break:break-all;">{{ $user->email }}</div>
-                <span class="badge-pill {{ $user->isAdmin() || $user->isMchungaji() || $user->isKiongozi() ? 'badge-kiongozi' : 'badge-mshirika' }}" style="margin-top:8px;">
+                @if(!$user->isMshirika())<div style="font-size:.84rem;color:var(--text-muted);word-break:break-all;">{{ $user->email }}</div>@endif
+                @if(!$user->isMshirika())<span class="badge-pill {{ $user->isAdmin() || $user->isMchungaji() || $user->isKiongozi() ? 'badge-kiongozi' : 'badge-mshirika' }}" style="margin-top:8px;">
                     {{ $user->isAdmin() ? 'Super Admin' : ($user->isMchungaji() ? 'Mchungaji' : ($user->isKiongozi() ? 'Kiongozi' : 'Mshirika')) }}
-                </span>
+                </span>@endif
             </div>
         </div>
 
+        @if(!$user->isMshirika())
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px;">
             <div style="background:#f8fafc;border:1px solid var(--border);border-radius:12px;padding:12px;">
                 <div style="font-size:.68rem;font-weight:800;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Member ID</div>
@@ -2750,6 +2873,7 @@
             <div style="font-size:.68rem;font-weight:800;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Anwani</div>
             <div style="font-size:.9rem;font-weight:700;color:var(--text);">{{ $user->address ?? 'Haijajazwa' }}</div>
         </div>
+        @endif
 
         <div style="margin-bottom:18px;">
             <div style="font-size:.72rem;font-weight:800;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px;">Idara</div>
@@ -2775,6 +2899,53 @@
         </button>
     </div>
 </div>
+
+{{-- Private profile completion form: details are visible to the church secretary, not on the member card. --}}
+<div class="modal-overlay" id="personalDetailsModal">
+    <div class="modal-box" style="max-width:760px;">
+        <button class="modal-close" onclick="document.getElementById('personalDetailsModal').classList.remove('open')"><i class="fa-solid fa-xmark"></i></button>
+        <div class="modal-title"><i class="fa-solid fa-user-pen" style="color:var(--accent)"></i> Jaza Taarifa Zako Binafsi</div>
+        <p style="color:var(--text-muted);font-size:.85rem;margin:-5px 0 18px;">Taarifa hizi zinahifadhiwa kwa siri na kusimamiwa na Katibu wa Kanisa.</p>
+        <form action="{{ route('profile.update') }}" method="POST" enctype="multipart/form-data">
+            @csrf @method('PATCH')
+            <input type="hidden" name="return_to_dashboard" value="1">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:13px;">
+                <div class="form-group"><label class="form-label">Jina kamili</label><input class="form-control" name="name" value="{{ $user->name }}" required></div>
+                <div class="form-group"><label class="form-label">Barua pepe</label><input class="form-control" type="email" name="email" value="{{ $user->email }}" required></div>
+                <div class="form-group"><label class="form-label">Namba ya simu</label><input class="form-control" name="phone" value="{{ $user->phone }}" required></div>
+                <div class="form-group"><label class="form-label">Jinsia</label><select class="form-control" name="gender" required><option value="">Chagua</option><option value="male" @selected($user->gender==='male')>Mwanaume</option><option value="female" @selected($user->gender==='female')>Mwanamke</option></select></div>
+                <div class="form-group"><label class="form-label">Tarehe ya kuzaliwa</label><input class="form-control" type="date" name="dob" value="{{ $user->dob }}" required></div>
+                <div class="form-group"><label class="form-label">Picha yako</label><input class="form-control" type="file" name="avatar" accept="image/*"></div>
+                <div class="form-group"><label class="form-label">Jina la mtaa</label><input class="form-control" name="street_name" value="{{ $user->street_name }}"></div>
+                <div class="form-group"><label class="form-label">Kata</label><input class="form-control" name="ward" value="{{ $user->ward }}"></div>
+                <div class="form-group"><label class="form-label">Hali ya ndoa</label><select class="form-control" name="marital_status" id="marital-status" onchange="toggleMarriageFields()"><option value="">Chagua</option><option value="single" @selected($user->marital_status === 'single')>Sijaoa / Sijaolewa</option><option value="married" @selected($user->marital_status === 'married')>Nimeoa / Nimeolewa</option><option value="widowed" @selected($user->marital_status === 'widowed')>Mjane</option></select></div>
+                <div class="form-group marriage-field"><label class="form-label">Majina ya mwenza</label><input class="form-control" name="spouse_names" value="{{ $user->spouse_names }}"></div>
+                <div class="form-group marriage-field"><label class="form-label">Watoto (wangapi)</label><input class="form-control" type="number" name="children_count" min="0" max="50" value="{{ $user->children_count }}"></div>
+                <div class="form-group"><label class="form-label">Tarehe ya kuokoka</label><input class="form-control" type="date" name="saved_date" value="{{ optional($user->saved_date)->format('Y-m-d') }}"></div>
+                <div class="form-group"><label class="form-label">Tarehe ya kubatizwa</label><input class="form-control" type="date" name="baptism_date" value="{{ optional($user->baptism_date)->format('Y-m-d') }}"></div>
+                <div class="form-group"><label class="form-label">Elimu</label><input class="form-control" name="education" value="{{ $user->education }}" placeholder="Mfano: Sekondari, Stashahada"></div>
+                <div class="form-group"><label class="form-label">Huduma</label><input class="form-control" name="service" value="{{ $user->service }}" placeholder="Mfano: Uimbaji, Uinjilisti"></div>
+                <div class="form-group" style="grid-column:1/-1;"><label class="form-label">Idara unazoshiriki</label><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;">@foreach($allDepartments as $departmentOption)<label style="display:flex;align-items:center;gap:9px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer;color:var(--text);font-size:.9rem;"><input type="checkbox" name="department_ids[]" value="{{ $departmentOption->id }}" @checked($user->departments->contains('id', $departmentOption->id)) style="width:16px;height:16px;accent-color:var(--accent);"> {{ $departmentOption->name_sw }}</label>@endforeach</div><small style="display:block;color:var(--text-muted);margin-top:5px;">Bonyeza idara unayotaka kuchagua au kuondoa.</small></div>
+            </div>
+            <button class="btn btn-primary" style="width:100%;margin-top:10px;"><i class="fa-solid fa-floppy-disk"></i> Hifadhi taarifa binafsi</button>
+        </form>
+    </div>
+</div>
+
+<style>
+    /* Mfumo hutumia maandishi bila emoji au alama za picha. */
+    .fa-solid, .fa-regular, .fa-brands, .nav-icon, .icon-box, .dept-chip-icon, .role-icon { display: none !important; }
+</style>
+<script>
+function toggleMarriageFields() {
+    const isMarried = document.getElementById('marital-status')?.value === 'married';
+    document.querySelectorAll('.marriage-field').forEach((field) => {
+        field.style.display = isMarried ? '' : 'none';
+        field.querySelector('input').required = isMarried;
+    });
+}
+document.addEventListener('DOMContentLoaded', toggleMarriageFields);
+</script>
 
 {{-- Modal for Quick Profile Avatar Upload --}}
 <div class="modal-overlay" id="profileAvatarModal">
@@ -2819,6 +2990,24 @@
         const panel = document.getElementById(`campaign-details-${campaignId}`);
         if (!panel) return;
         panel.style.display = panel.style.display === 'none' || panel.style.display === '' ? 'block' : 'none';
+    }
+
+    function showDepartmentContributions(departmentId, departmentName) {
+        const panel = document.getElementById('departmentContributionDetails');
+        const title = document.getElementById('selectedContributionDepartment');
+        if (!panel || !title) return;
+
+        title.textContent = departmentName;
+        let count = 0;
+        document.querySelectorAll('[data-campaign-record]').forEach((record) => {
+            const matches = String(record.dataset.departmentId) === String(departmentId);
+            record.style.display = matches ? '' : 'none';
+            if (matches) count++;
+        });
+        document.getElementById('selectedContributionCount').textContent = `Jumla ya michango: ${count}`;
+        document.getElementById('noDepartmentContributions').style.display = count ? 'none' : 'block';
+        panel.style.display = 'block';
+        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     function filterRecordedPayments() {
@@ -3184,7 +3373,6 @@
 
         <form action="{{ route('onboarding.complete') }}" method="POST" id="onboardingForm" enctype="multipart/form-data" onsubmit="return validateOnboardingSubmit()">
             @csrf
-            <input type="hidden" name="role_selection_only" value="1">
             
             <!-- STEP 1: Role Selection -->
             <div id="onb_step_role">
@@ -3208,7 +3396,7 @@
                     </button>
                 </div>
 
-                <button type="submit" id="onb_role_next" class="btn btn-primary" style="width:100%;margin-top:6px;padding:13px;font-size:.95rem;display:flex;align-items:center;justify-content:center;gap:8px;opacity:.55;" disabled>
+                <button type="button" id="onb_role_next" onclick="goToOnboardingDepartments()" class="btn btn-primary" style="width:100%;margin-top:6px;padding:13px;font-size:.95rem;display:flex;align-items:center;justify-content:center;gap:8px;opacity:.55;" disabled>
                     ENDELEA <i class="fa-solid fa-check"></i>
                 </button>
             </div>
@@ -3482,6 +3670,42 @@
 
 <script>
     // ── Panel switching ──
+    const notificationTrigger = document.getElementById('notification-trigger');
+    const notificationPanel = document.getElementById('notification-panel');
+    const notificationClose = document.getElementById('notification-close');
+    const notificationCount = document.querySelector('.notification-count');
+
+    function setNotificationPanel(open) {
+        if (!notificationPanel || !notificationTrigger) return;
+        notificationPanel.classList.toggle('open', open);
+        notificationTrigger.setAttribute('aria-expanded', String(open));
+    }
+
+    notificationTrigger?.addEventListener('click', event => {
+        event.stopPropagation();
+        const willOpen = !notificationPanel.classList.contains('open');
+        setNotificationPanel(willOpen);
+        if (willOpen && notificationCount) {
+            notificationCount.textContent = '0';
+            fetch('{{ route('notifications.read') }}', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content,
+                    'Accept': 'application/json',
+                },
+            });
+        }
+    });
+    notificationClose?.addEventListener('click', () => setNotificationPanel(false));
+    document.addEventListener('click', event => {
+        if (notificationPanel?.classList.contains('open') && !notificationPanel.contains(event.target) && !notificationTrigger.contains(event.target)) {
+            setNotificationPanel(false);
+        }
+    });
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape') setNotificationPanel(false);
+    });
+
     function showPanel(name, el) {
         document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
         document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -3500,7 +3724,8 @@
             announcements: 'Matangazo ya Kanisa', 
             sms: 'Tuma SMS kwa Wanachama', 
             profile: 'Taarifa za Mtumiaji', 
-            help: 'Ujumbe wa Msaada' 
+            help: 'Ujumbe wa Msaada',
+            'account-settings': @json(__('Mipangilio ya Akaunti'))
         };
         document.getElementById('topbar-title').textContent = titles[name] || name;
     }
@@ -3554,14 +3779,6 @@
     // ── Dept chip handling ──
     function validateOnboardingSubmit() {
         const role = document.getElementById('onb_role')?.value;
-
-        if (document.querySelector('input[name="role_selection_only"]')?.value === '1') {
-            if (!role) {
-                alert('Tafadhali chagua Mshirika au Kiongozi.');
-                return false;
-            }
-            return true;
-        }
 
         if (role === 'mshirika') {
             const selectedDepartments = document.querySelectorAll('.onb-dept-check:checked').length;
@@ -3787,14 +4004,6 @@
         const labelText = document.querySelector('#panel-members p');
         if (labelText && label) {
             labelText.innerHTML = `${label} · Jumla: <strong>${visible}</strong>`;
-        }
-    }
-
-    function updateSmsCount() {
-        const textarea = document.getElementById('smsText');
-        const countSpan = document.getElementById('smsCount');
-        if (textarea && countSpan) {
-            countSpan.textContent = textarea.value.length;
         }
     }
 

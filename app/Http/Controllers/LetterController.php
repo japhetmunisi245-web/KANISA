@@ -30,8 +30,8 @@ class LetterController extends Controller
         /** @var User $user */
         $user = Auth::user();
 
-        if (!$user->isKiongozi() && !$user->isMchungaji() && !$user->isAdmin()) {
-            return redirect()->back()->with('error', 'Hauruhusiwi kuandaa au kutengeneza barua rasmi. Ni Viongozi na Mchungaji pekee wanaoweza kuandaa barua.');
+        if (!$user->isKiongozi() && !$user->isMchungaji() && !$user->isAdmin() && !$user->isSecretary()) {
+            return redirect()->back()->with('error', 'Hauruhusiwi kuandaa au kutengeneza barua rasmi.');
         }
 
         $letter = Letter::create([
@@ -364,7 +364,7 @@ SVG;
         $user   = Auth::user();
 
         // Authorization check: only owner, leader of dept, pastor or admin can view
-        if ($letter->user_id !== $user->id && !$user->isKiongozi() && !$user->isMchungaji() && !$user->isAdmin()) {
+        if ($letter->user_id !== $user->id && !$user->isKiongozi() && !$user->isMchungaji() && !$user->isAdmin() && !$user->isSecretary()) {
             abort(403, 'Hauruhusiwi kutazama barua hii.');
         }
 
@@ -395,7 +395,7 @@ SVG;
         $user   = Auth::user();
 
         // Authorization check: only owner, leader of dept, or pastor can download
-        if ($letter->user_id !== $user->id && !$user->isKiongozi() && !$user->isMchungaji() && !$user->isAdmin()) {
+        if ($letter->user_id !== $user->id && !$user->isKiongozi() && !$user->isMchungaji() && !$user->isAdmin() && !$user->isSecretary()) {
             abort(403, 'Hauruhusiwi kuipakua barua hii.');
         }
 

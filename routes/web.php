@@ -17,13 +17,24 @@ Route::get('/verify-letter/{token}', [LetterController::class, 'verify'])->name(
 
 Route::middleware(['auth'])->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
-    Route::get('/church-office', [ChurchOfficeController::class, 'index'])->name('church-office.index');
+    Route::post('/dashboard/view-mode', [DashboardController::class, 'setDashboardViewMode'])->name('dashboard.view-mode');
+    Route::post('/notifications/read', [DashboardController::class, 'markNotificationsRead'])->name('notifications.read');
+    Route::get('/church-office', [ChurchOfficeController::class, 'index'])->middleware(['secretary.dashboard', 'attendance.filters'])->name('church-office.index');
+    Route::get('/church-office/departments/{department}', [ChurchOfficeController::class, 'showDepartment'])->name('church-office.departments.show');
     Route::post('/church-office/minutes', [ChurchOfficeController::class, 'storeMinute'])->name('church-office.minutes.store');
     Route::post('/church-office/schedules', [ChurchOfficeController::class, 'storeSchedule'])->name('church-office.schedules.store');
     Route::post('/church-office/announcements', [ChurchOfficeController::class, 'storeAnnouncement'])->name('church-office.announcements.store');
+    Route::get('/church-office/announcements/{announcement}/media/download', [ChurchOfficeController::class, 'downloadAnnouncementMedia'])->name('church-office.announcements.media.download');
     Route::post('/church-office/attendance', [ChurchOfficeController::class, 'storeAttendance'])->name('church-office.attendance.store');
+    Route::get('/church-office/visitors/report/pdf', [ChurchOfficeController::class, 'downloadVisitorReport'])->name('church-office.visitors.report.pdf');
     Route::post('/church-office/offerings', [ChurchOfficeController::class, 'storeOffering'])->name('church-office.offerings.store');
+    Route::post('/church-office/expenses', [ChurchOfficeController::class, 'storeExpense'])->name('church-office.expenses.store');
+    Route::get('/church-office/offerings/report/pdf', [ChurchOfficeController::class, 'downloadOfferingReport'])->name('church-office.offerings.report.pdf');
     Route::patch('/church-office/members/{member}/status', [ChurchOfficeController::class, 'updateMemberStatus'])->name('church-office.members.status.update');
+    Route::post('/church-office/members', [ChurchOfficeController::class, 'storeMember'])->name('church-office.members.store');
+    Route::patch('/church-office/members/{member}', [ChurchOfficeController::class, 'updateMember'])->name('church-office.members.update');
+    Route::post('/church-office/members/{member}/departments', [ChurchOfficeController::class, 'assignDepartment'])->name('church-office.members.departments.store');
+    Route::delete('/church-office/members/{member}/departments/{department}', [ChurchOfficeController::class, 'removeDepartment'])->name('church-office.members.departments.destroy');
     Route::post('/complete-onboarding', [DashboardController::class, 'completeOnboarding'])->name('onboarding.complete');
 
     // Official Letter System

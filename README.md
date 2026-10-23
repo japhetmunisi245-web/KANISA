@@ -1,69 +1,59 @@
-# ⛪ E.A.G.T Kiburugwa Philadelphia Church — Management System
+<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
 
-A web-based Church Management and Department Administration System built with **Laravel 12**, **PostgreSQL**, **Vite**, and **Beem Africa SMS Gateway**.
+<p align="center">
+<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
+<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
+<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
+<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
+</p>
 
----
+## About Laravel
 
-## ✨ Key Features
+Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
 
-- 👥 **Membership Management:** Member registration, role assignments, department affiliations, and directory search.
-- 🏢 **Department Leadership Portals:** Dedicated leader dashboards for tracking department members, meetings, attendance, and contribution campaigns.
-- 📱 **Beem Africa Bulk SMS:** Integrated bulk SMS gateway with automated department tags (`[IDARA YA VIJANA]`, `[IDARA YA WANAWAKE]`, etc.) using the approved `KANISA` sender ID.
-- 📜 **Official Church Letters & Verification:** Digital letter drafting, pastoral approvals, and public QR code document verification.
-- 💰 **Contributions & Financials:** Pledge campaigns, offering records, and downloadable PDF receipts with DomPDF.
-- 📊 **Executive Church Office:** Pastoral and office oversight for meetings, duty schedules, and church-wide announcements.
+- [Simple, fast routing engine](https://laravel.com/docs/routing).
+- [Powerful dependency injection container](https://laravel.com/docs/container).
+- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
+- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
+- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
+- [Robust background job processing](https://laravel.com/docs/queues).
+- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
 
----
+Laravel is accessible, powerful, and provides tools required for large, robust applications.
 
-## 🚀 Quick Setup (Local Development)
+## Learning Laravel
 
-### Prerequisites
-- PHP 8.2+
-- Composer
-- Node.js & npm
-- PostgreSQL
+Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
 
-### Installation
+If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
 
-1. **Clone the repository:**
-   ```bash
-   git clone <repo-url>
-   cd KANISA
-   ```
+## Laravel Sponsors
 
-2. **Install PHP and Node dependencies:**
-   ```bash
-   composer install
-   npm install
-   ```
+We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
 
-3. **Configure Environment:**
-   ```bash
-   cp .env.example .env
-   php artisan key:generate
-   ```
-   *Edit `.env` to configure your PostgreSQL credentials and Beem Africa keys.*
+### Premium Partners
 
-4. **Run Migrations & Seeders:**
-   ```bash
-   php artisan migrate --seed
-   ```
+- **[Vehikl](https://vehikl.com)**
+- **[Tighten Co.](https://tighten.co)**
+- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
+- **[64 Robots](https://64robots.com)**
+- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
+- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
+- **[Redberry](https://redberry.international/laravel-development)**
+- **[Active Logic](https://activelogic.com)**
 
-5. **Start Development Servers:**
-   ```bash
-   npm run dev
-   php artisan serve
-   ```
+## Contributing
 
----
+Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
 
-## 🌐 Production Hosting & Deployment
+## Code of Conduct
 
-For a full guide on deploying this system for **1,000+ members** on Railway, Docker, or a VPS (Hetzner / DigitalOcean):
+In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
 
-👉 **Read the [Hosting & Deployment Guide](HOSTING_GUIDE.md)**
+## Security Vulnerabilities
 
----
+If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
 
-## 📜 License
-Proprietary software developed for E.A.G.T Kiburugwa Philadelphia Church. All rights reserved.
+## License
+
+The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).

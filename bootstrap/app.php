@@ -13,9 +13,12 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->web(append: [
             \App\Http\Middleware\PreventBackHistory::class,
+            \App\Http\Middleware\SetUserLocale::class,
         ]);
         $middleware->alias([
             'role' => \App\Http\Middleware\CheckRole::class,
+            'secretary.dashboard' => \App\Http\Middleware\EnhanceSecretaryDashboard::class,
+            'attendance.filters' => \App\Http\Middleware\AddAttendancePeriodFilters::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

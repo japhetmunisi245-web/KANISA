@@ -35,17 +35,4 @@ return [
         ],
     ],
 
-    /*
-    |--------------------------------------------------------------------------
-    | Beem Africa SMS Gateway
-    |--------------------------------------------------------------------------
-    | Credentials for the Beem Africa SMS API (https://beem.africa).
-    | BEEM_SENDER_ID must be your approved alphanumeric sender name (≤11 chars).
-    */
-    'beem' => [
-        'api_key'   => env('BEEM_API_KEY'),
-        'secret_key'=> env('BEEM_SECRET_KEY'),
-        'sender_id' => env('BEEM_SENDER_ID', 'KANISA'),
-    ],
-
 ];

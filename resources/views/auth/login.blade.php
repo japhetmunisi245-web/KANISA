@@ -321,6 +321,12 @@
                 </div>
             @endif
 
+            @if(session('registration_hint'))
+                <div style="background:#e8fbf1;border:1.5px solid #79cfa3;color:#13794d;padding:12px 16px;border-radius:16px;margin-bottom:20px;font-size:.85rem;line-height:1.45;">
+                    <strong><i class="fa-solid fa-circle-info"></i> Usajili wa mhamia</strong><br>{{ session('registration_hint') }}
+                </div>
+            @endif
+
             @if(request()->routeIs('register'))
                 <!-- REGISTER FORM -->
                 <div class="auth-header">

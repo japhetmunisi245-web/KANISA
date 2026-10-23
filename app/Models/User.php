@@ -28,9 +28,21 @@ class User extends Authenticatable
         'gender',
         'dob',
         'address',
+        'street_name', 'ward', 'marital_status', 'spouse_names', 'children_count',
+        'saved_date', 'baptism_date', 'education', 'service',
         'member_id',
         'status',
+        'joined_as_visitor',
+        'joined_church_at',
+        'origin_location',
+        'current_location',
+        'previous_church_name',
+        'previous_church_location',
+        'previous_pastor_name',
+        'previous_pastor_phone',
+        'introduction_letter_path',
         'onboarding_completed_at',
+        'language',
         'password',
     ];
 
@@ -54,6 +66,11 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'onboarding_completed_at' => 'datetime',
+            'dob' => 'date',
+            'saved_date' => 'date',
+            'baptism_date' => 'date',
+            'joined_as_visitor' => 'boolean',
+            'joined_church_at' => 'date',
             'password' => 'hashed',
         ];
     }
@@ -72,11 +89,19 @@ class User extends Authenticatable
 
     public function isKiongozi(): bool
     {
+        if ($this->getAttribute('dashboard_view_mode') === 'member') {
+            return false;
+        }
+
         return $this->role === 'kiongozi' || $this->hasRole('kiongozi') || $this->hasRole('mchungaji') || $this->hasRole('admin');
     }
 
     public function isMshirika(): bool
     {
+        if ($this->getAttribute('dashboard_view_mode') === 'member') {
+            return true;
+        }
+
         return $this->role === 'mshirika' || $this->hasRole('mshiriki');
     }
     

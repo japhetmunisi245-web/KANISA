@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class ChurchAnnouncement extends Model
 {
-    protected $fillable = ['user_id', 'audience', 'title', 'content', 'expires_at'];
+    protected $fillable = ['user_id', 'audience', 'title', 'content', 'media_path', 'media_type', 'media_original_name', 'expires_at'];
 
     protected $casts = ['expires_at' => 'date'];
 
