@@ -15,8 +15,7 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call([
-            DepartmentSeeder::class,
-            ChurchOfficeAccountsSeeder::class,
+            ChurchSystemSeeder::class,
         ]);
         
         $watotoDept = Department::where('name_sw', 'Idara ya Watoto')->first();

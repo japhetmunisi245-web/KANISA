@@ -17,6 +17,7 @@ use App\Models\DutySchedule;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 
 class DashboardController extends Controller
 {
@@ -293,6 +294,8 @@ class DashboardController extends Controller
                 ])
                 ->get();
 
+            $isMwenyekiti = true;
+
             return view('dashboard', compact(
                 'user', 'totalMembers', 'activeMembers', 'deptLeadersCount',
                 'totalPaymentsSum', 'pendingPayments', 'approvedLetters', 'pendingLetters',
@@ -304,7 +307,7 @@ class DashboardController extends Controller
                 'leaderDepartmentsForSwitch', 'activeDepartmentCheo', 'deptPerformance',
                 'adminDepartmentPaymentGroups', 'adminDepartmentReportGroups', 'memberSearchData',
                 'adminMembers', 'departmentMembers', 'adminDepartmentFullView', 'churchAnnouncements',
-                'canSwitchDashboardMode', 'dashboardViewMode'
+                'canSwitchDashboardMode', 'dashboardViewMode', 'isMwenyekiti'
             ));
 
         } elseif ($user->isKiongozi()) {
@@ -366,13 +369,15 @@ class DashboardController extends Controller
             $leaderDepartmentsForSwitch = ($user->isMchungaji() || $user->isAdmin()) ? $allDepartments : $leadershipDepartments;
             $allOfferings = $user->isMchungaji() ? Offering::latest('offering_date')->get() : collect();
 
+            $isMwenyekiti = $user->isMwenyekiti($department);
+
             return view('dashboard', compact(
                 'user', 'department', 'members', 'announcements', 'reports',
                 'letters', 'smsLogs', 'allDepartments', 'allPayments', 'myPayments',
                 'leaderPositionCount', 'showPositionCounter', 'myHelpMessages', 'pendingDeptLetters',
                 'allLetters', 'contributionCampaigns', 'allContributionCampaigns', 'activeDepartmentCheo',
                 'leaderDepartmentsForSwitch', 'churchAnnouncements', 'allOfferings',
-                'canSwitchDashboardMode', 'dashboardViewMode'
+                'canSwitchDashboardMode', 'dashboardViewMode', 'isMwenyekiti'
             ));
         } else {
             // MSHIRIKI DASHBOARD
@@ -491,6 +496,12 @@ class DashboardController extends Controller
         }
 
         $role = $request->input('role', 'mshirika');
+
+        $canSelfAssignLeader = $user->isAdmin() || $user->isMchungaji() || $user->role === 'kiongozi' || $user->hasRole('kiongozi');
+        if ($role === 'kiongozi' && !$canSelfAssignLeader) {
+            return redirect()->back()
+                ->with('error', 'Nafasi za uongozi wa idara husajiliwa na kupewa password na Kiongozi Mwenyekiti pekee. Tafadhali chagua kujiunga kama mshirika.');
+        }
 
         if ($role === 'mshirika') {
             $request->validate([
@@ -640,6 +651,208 @@ class DashboardController extends Controller
         $member->departments()->detach($request->department_id);
 
         return redirect()->back()->with('success', "{$member->name} ameondolewa kutoka idara.");
+    }
+
+    // Kiongozi Mwenyekiti: Register a new leader for the department and set their password
+    public function storeDepartmentLeader(Request $request)
+    {
+        $request->validate([
+            'department_id'         => 'required|exists:departments,id',
+            'name'                  => 'required|string|max:255',
+            'email'                 => 'required|email|max:255',
+            'phone'                 => 'required|string|max:30',
+            'gender'                => 'nullable|in:male,female',
+            'cheo'                  => 'required|string|max:100',
+            'password'              => 'required|string|min:6|confirmed',
+        ]);
+
+        /** @var User $currentUser */
+        $currentUser = Auth::user();
+        $department = Department::findOrFail($request->department_id);
+
+        // Verify currentUser is Mwenyekiti of this department OR Mchungaji OR Admin
+        if (!$currentUser->isAdmin() && !$currentUser->isMchungaji() && !$currentUser->isMwenyekiti($department)) {
+            return redirect()->back()->with('error', 'Ni Kiongozi Mwenyekiti pekee mwenye mamlaka ya kusajili viongozi wa idara hii.');
+        }
+
+        $email = mb_strtolower(trim($request->email));
+        $normalizedCheo = trim($request->cheo);
+
+        // Check if another leader in this department already holds this cheo (unless it's Mjumbe wa Kamati)
+        if (!str_contains(mb_strtolower($normalizedCheo), 'mjumbe')) {
+            $existingLeaderWithCheo = $department->users()
+                ->wherePivot('role', 'kiongozi')
+                ->whereRaw('LOWER(department_user.cheo) = ?', [mb_strtolower($normalizedCheo)])
+                ->first();
+
+            if ($existingLeaderWithCheo && $existingLeaderWithCheo->email !== $email) {
+                return redirect()->back()
+                    ->withInput()
+                    ->with('error', "Cheo cha '{$normalizedCheo}' tayari kinashikiliwa na {$existingLeaderWithCheo->name} katika idara hii.");
+            }
+        }
+
+        $targetUser = User::whereRaw('LOWER(email) = ?', [$email])->first();
+
+        if ($targetUser) {
+            // Already in system - promote or assign leadership in this department
+            if ($department->users()->where('users.id', $targetUser->id)->wherePivot('role', 'kiongozi')->exists()) {
+                return redirect()->back()
+                    ->withInput()
+                    ->with('error', "{$targetUser->name} tayari ni kiongozi mwenye nafasi katika idara hii.");
+            }
+
+            $targetUser->update([
+                'name'                    => trim($request->name),
+                'password'                => Hash::make($request->password),
+                'role'                    => 'kiongozi',
+                'cheo'                    => $targetUser->cheo ?: $normalizedCheo,
+                'phone'                   => $request->phone ?: $targetUser->phone,
+                'gender'                  => $request->gender ?: $targetUser->gender,
+                'status'                  => 'active',
+                'onboarding_completed_at' => now(),
+            ]);
+        } else {
+            // Create brand new leader
+            $latestId = User::max('id') + 1;
+            $memberId = 'EAGT-KBP-' . str_pad((string) $latestId, 4, '0', STR_PAD_LEFT);
+
+            $targetUser = User::create([
+                'name'                    => trim($request->name),
+                'email'                   => $email,
+                'phone'                   => trim($request->phone),
+                'gender'                  => $request->gender,
+                'password'                => Hash::make($request->password),
+                'role'                    => 'kiongozi',
+                'cheo'                    => $normalizedCheo,
+                'member_id'               => $memberId,
+                'status'                  => 'active',
+                'onboarding_completed_at' => now(),
+            ]);
+        }
+
+        \Spatie\Permission\Models\Role::firstOrCreate(['name' => 'kiongozi']);
+        $targetUser->assignRole('kiongozi');
+
+        $targetUser->departments()->syncWithoutDetaching([
+            $department->id => [
+                'role' => 'kiongozi',
+                'cheo' => $normalizedCheo,
+            ]
+        ]);
+
+        \App\Models\AuditLog::create([
+            'user_id'     => $currentUser->id,
+            'action'      => 'LEADER_REGISTERED',
+            'description' => "Mwenyekiti {$currentUser->name} amemsajili {$targetUser->name} kama {$normalizedCheo} wa {$department->name_sw}.",
+            'ip_address'  => $request->ip(),
+            'document_id' => (string) $department->id,
+        ]);
+
+        return redirect()->back()
+            ->with('success', "Kiongozi {$targetUser->name} amesajiliwa kikamilifu!")
+            ->with('registered_leader_credentials', [
+                'name'       => $targetUser->name,
+                'email'      => $targetUser->email,
+                'phone'      => $targetUser->phone,
+                'password'   => $request->password,
+                'cheo'       => $normalizedCheo,
+                'department' => $department->name_sw,
+            ]);
+    }
+
+    // Kiongozi Mwenyekiti: Change/Set password for a department leader
+    public function updateLeaderPassword(Request $request, User $user)
+    {
+        $request->validate([
+            'department_id' => 'required|exists:departments,id',
+            'password'      => 'required|string|min:6|confirmed',
+        ]);
+
+        /** @var User $currentUser */
+        $currentUser = Auth::user();
+        $department = Department::findOrFail($request->department_id);
+
+        if (!$currentUser->isAdmin() && !$currentUser->isMchungaji() && !$currentUser->isMwenyekiti($department)) {
+            return redirect()->back()->with('error', 'Ni Kiongozi Mwenyekiti pekee mwenye mamlaka ya kubadilisha nenosiri la viongozi wa idara hii.');
+        }
+
+        $isLeaderInDept = $department->users()
+            ->where('users.id', $user->id)
+            ->wherePivot('role', 'kiongozi')
+            ->exists();
+
+        if (!$isLeaderInDept && !$user->isAdmin()) {
+            return redirect()->back()->with('error', 'Mtumiaji huyu si kiongozi katika idara hii.');
+        }
+
+        if (($user->isAdmin() || $user->isMchungaji()) && !$currentUser->isAdmin()) {
+            return redirect()->back()->with('error', 'Huna ruhusa ya kubadilisha nenosiri la msimamizi mkuu.');
+        }
+
+        $user->update([
+            'password' => Hash::make($request->password),
+        ]);
+
+        $pivotCheo = $department->users()->where('users.id', $user->id)->first()?->pivot?->cheo ?? $user->cheo ?? 'Kiongozi';
+
+        \App\Models\AuditLog::create([
+            'user_id'     => $currentUser->id,
+            'action'      => 'LEADER_PASSWORD_UPDATED',
+            'description' => "Mwenyekiti {$currentUser->name} amebadili nenosiri la kiongozi {$user->name} ({$pivotCheo}) katika {$department->name_sw}.",
+            'ip_address'  => $request->ip(),
+            'document_id' => (string) $department->id,
+        ]);
+
+        return redirect()->back()
+            ->with('success', "Nenosiri la kiongozi {$user->name} limebadilishwa kikamilifu!")
+            ->with('updated_leader_credentials', [
+                'name'       => $user->name,
+                'email'      => $user->email,
+                'password'   => $request->password,
+                'cheo'       => $pivotCheo,
+                'department' => $department->name_sw,
+            ]);
+    }
+
+    // Kiongozi Mwenyekiti: Remove a leader from department leadership
+    public function removeDepartmentLeader(Request $request, User $user)
+    {
+        $request->validate([
+            'department_id' => 'required|exists:departments,id',
+        ]);
+
+        /** @var User $currentUser */
+        $currentUser = Auth::user();
+        $department = Department::findOrFail($request->department_id);
+
+        if (!$currentUser->isAdmin() && !$currentUser->isMchungaji() && !$currentUser->isMwenyekiti($department)) {
+            return redirect()->back()->with('error', 'Huna mamlaka ya kuondoa kiongozi katika idara hii.');
+        }
+
+        if ($user->id === $currentUser->id) {
+            return redirect()->back()->with('error', 'Huwezi kujiondoa mwenyewe kwenye uongozi.');
+        }
+
+        // Detach from department
+        $department->users()->detach($user->id);
+
+        // If user has no more leadership positions, demote role to mshirika
+        $hasOtherLeadership = $user->departments()->wherePivot('role', 'kiongozi')->exists();
+        if (!$hasOtherLeadership && $user->role === 'kiongozi' && !$user->isAdmin() && !$user->isMchungaji()) {
+            $user->update(['role' => 'mshirika', 'cheo' => null]);
+            $user->syncRoles(['mshiriki']);
+        }
+
+        \App\Models\AuditLog::create([
+            'user_id'     => $currentUser->id,
+            'action'      => 'LEADER_REMOVED',
+            'description' => "Kiongozi {$user->name} ameondolewa kwenye uongozi wa {$department->name_sw}.",
+            'ip_address'  => $request->ip(),
+            'document_id' => (string) $department->id,
+        ]);
+
+        return redirect()->back()->with('success', "Kiongozi {$user->name} ameondolewa kwenye uongozi wa idara.");
     }
 
     // Help message to admin

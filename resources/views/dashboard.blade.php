@@ -1836,17 +1836,38 @@
         {{-- PANEL: MEMBERS (Kiongozi only)         --}}
         {{-- ══════════════════════════════════════ --}}
         @if($user->isKiongozi())
+        @php
+            $canManageLeaders = $user->isAdmin() || $user->isMchungaji() || $user->isMwenyekiti($department ?? null);
+            $leaderRoleOrder = ['mwenyekiti', 'makamu mwenyekiti', 'mwenyekiti msaidizi', 'katibu', 'katibu msaidizi', 'mhasibu', 'mhazini', 'mjumbe wa kamati', 'mjumbe'];
+            
+            $departmentLeaders = $members->filter(function ($m) {
+                return ($m->pivot?->role === 'kiongozi') || ($m->role === 'kiongozi');
+            })->sortBy(function ($m) use ($leaderRoleOrder) {
+                $cheo = mb_strtolower(trim((string)($m->pivot?->cheo ?? $m->cheo ?? '')));
+                $idx = array_search($cheo, $leaderRoleOrder, true);
+                return $idx === false ? 99 : $idx;
+            });
+
+            $departmentWashirika = $members->reject(function ($m) {
+                return ($m->pivot?->role === 'kiongozi') || ($m->role === 'kiongozi');
+            });
+        @endphp
         <div class="panel" id="panel-members">
 
             {{-- Header --}}
             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:22px;">
                 <div>
-                    <h4 style="font-size:1.1rem;font-weight:700;"><i class="fa-solid fa-users" style="margin-right:6px;color:var(--accent);"></i> {{ $user->isMchungaji() ? 'Wanachama wa Kanisa na Idara' : 'Wanachama wa Idara' }}</h4>
-                    <p style="font-size:.82rem;color:var(--text-muted);margin-top:2px;">{{ $user->isMchungaji() ? 'Idara zote' : ($department->name_sw ?? '') }} · Jumla: <strong>{{ $members->count() }}</strong></p>
+                    <h4 style="font-size:1.15rem;font-weight:800;display:flex;align-items:center;gap:8px;">
+                        <i class="fa-solid fa-users-gear" style="color:var(--accent);"></i> 
+                        {{ $user->isMchungaji() ? 'Wanachama na Viongozi wa Kanisa' : 'Wanachama na Viongozi wa Idara' }}
+                    </h4>
+                    <p style="font-size:.82rem;color:var(--text-muted);margin-top:2px;">
+                        {{ $user->isMchungaji() ? 'Idara zote' : ($department->name_sw ?? '') }} · Viongozi: <strong>{{ $departmentLeaders->count() }}</strong> · Washirika: <strong>{{ $departmentWashirika->count() }}</strong>
+                    </p>
                 </div>
-                <div class="dept-filter-bar">
+                <div class="dept-filter-bar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                     @if($user->isAdmin() || $user->isMchungaji())
-                        <select id="memberDepartmentFilter" class="form-control" style="width:260px;" onchange="filterMembersByDepartment(this.value, this.options[this.selectedIndex].text)">
+                        <select id="memberDepartmentFilter" class="form-control" style="width:230px;" onchange="filterMembersByDepartment(this.value, this.options[this.selectedIndex].text)">
                             <option value="all">Idara zote</option>
                             @foreach(($allDepartments ?? collect()) as $filterDept)
                                 <option value="{{ $filterDept->id }}" {{ isset($department) && $department?->id === $filterDept->id ? 'selected' : '' }}>{{ $filterDept->name_sw }}</option>
@@ -1854,91 +1875,202 @@
                         </select>
                     @else
                         <form method="GET" action="{{ route('dashboard') }}">
-                            <select name="department_id" class="form-control" style="width:260px;" onchange="this.form.submit()">
+                            <select name="department_id" class="form-control" style="width:230px;" onchange="this.form.submit()">
                                 @foreach(($leaderDepartmentsForSwitch ?? collect([$department])) as $filterDept)
                                     <option value="{{ $filterDept->id }}" {{ isset($department) && $department?->id === $filterDept->id ? 'selected' : '' }}>{{ $filterDept->name_sw }}</option>
                                 @endforeach
                             </select>
                         </form>
                     @endif
-                    <button onclick="document.getElementById('addMemberModal').classList.add('open')" class="btn btn-primary">
+
+                    @if($canManageLeaders)
+                        <button onclick="document.getElementById('registerLeaderModal').classList.add('open')" class="btn btn-primary" style="background:linear-gradient(135deg,#1e3a8a,#3b82f6);border:none;box-shadow:0 4px 14px rgba(30,58,138,.3);font-size:.82rem;display:flex;align-items:center;gap:6px;">
+                            <i class="fa-solid fa-user-shield"></i> Sajili Kiongozi
+                        </button>
+                    @endif
+
+                    <button onclick="document.getElementById('addMemberModal').classList.add('open')" class="btn btn-outline" style="font-size:.82rem;display:flex;align-items:center;gap:6px;">
                         <i class="fa-solid fa-user-plus"></i> Ongeza Mshirika
                     </button>
                 </div>
             </div>
 
-            {{-- Members Card Grid --}}
-            @if($members->count() > 0)
-            <div class="members-grid">
-                @foreach($members as $m)
-                <div class="member-card" data-departments="{{ $m->departments->pluck('id')->join(',') }}">
-
-                    {{-- Remove / Self badge --}}
-                    @if(!$user->isAdmin() && $m->id !== $user->id)
-                        <form method="POST" action="{{ route('members.remove') }}"
-                            onsubmit="return confirm('Una uhakika wa kuondoa {{ addslashes($m->name) }}?')"
-                            style="margin:0">
-                            @csrf
-                            <input type="hidden" name="department_id" value="{{ $department->id ?? '' }}">
-                            <input type="hidden" name="user_id" value="{{ $m->id }}">
-                            <button type="submit" class="member-card-remove">
-                                <i class="fa-solid fa-user-minus"></i> Ondoa
-                            </button>
-                        </form>
-                    @elseif($m->id === $user->id)
-                        <span class="member-card-self">Wewe</span>
-                    @endif
-
-                    {{-- Photo --}}
-                    <div class="member-card-photo">
-                        @if($m->avatar)
-                            <img src="{{ asset('storage/'.$m->avatar) }}" alt="{{ $m->name }}">
-                        @else
-                            {{ strtoupper(substr($m->name, 0, 1)) }}
-                        @endif
+            {{-- ════════════════════════════════════════════ --}}
+            {{-- 1. VIONGOZI WA IDARA (Kamati Tendaji)         --}}
+            {{-- ════════════════════════════════════════════ --}}
+            <div style="background:#fff;border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:24px;box-shadow:0 2px 8px rgba(0,0,0,.03);">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border);">
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        <span style="width:34px;height:34px;border-radius:10px;background:#fef3c7;color:#92400e;display:inline-flex;align-items:center;justify-content:center;font-size:1.05rem;">
+                            <i class="fa-solid fa-crown"></i>
+                        </span>
+                        <div>
+                            <div style="font-size:1rem;font-weight:800;color:var(--text);">Viongozi wa Idara (Kamati Tendaji)</div>
+                            <div style="font-size:.76rem;color:var(--text-muted);">Viongozi wanaosimamia uendeshaji wa idara hii</div>
+                        </div>
+                        <span class="badge-pill" style="background:#eef2ff;color:#4f46e5;font-weight:800;font-size:.75rem;">{{ $departmentLeaders->count() }}</span>
                     </div>
 
-                    {{-- Name & Role --}}
-                    <div class="member-card-name">{{ $m->name }}</div>
-                    <span class="badge-pill {{ $m->role === 'kiongozi' ? 'badge-kiongozi' : 'badge-mshirika' }}">
-                        {{ $m->pivot?->cheo ?? ucfirst($m->role) }}
-                    </span>
-
-                    {{-- Contact info --}}
-                    <div class="member-card-email"><i class="fa-solid fa-envelope" style="margin-right:4px;color:var(--accent)"></i>{{ $m->email }}</div>
-                    @if($m->phone)
-                        <div class="member-card-phone"><i class="fa-solid fa-phone" style="margin-right:4px;color:var(--accent-green)"></i>{{ $m->phone }}</div>
-                    @endif
-                    @if($user->isMchungaji())
-                        <details style="margin-top:10px;text-align:left;border-top:1px solid var(--border);padding-top:9px;">
-                            <summary style="cursor:pointer;color:var(--accent);font-weight:800;font-size:.78rem;">Tazama taarifa kamili</summary>
-                            <div style="display:grid;gap:5px;margin-top:9px;font-size:.75rem;color:var(--text-muted);">
-                                <div><strong style="color:var(--text);">Idara:</strong> {{ $m->departments->pluck('name_sw')->join(', ') ?: 'Hana idara' }}</div>
-                                <div><strong style="color:var(--text);">Jinsia:</strong> {{ $m->gender === 'male' ? 'Mwanaume' : ($m->gender === 'female' ? 'Mwanamke' : 'Haijawekwa') }}</div>
-                                <div><strong style="color:var(--text);">Hali ya ndoa:</strong> {{ $m->marital_status === 'married' ? 'Nimeoa / Nimeolewa' : ($m->marital_status === 'single' ? 'Sijaoa / Sijaolewa' : ($m->marital_status === 'widowed' ? 'Mjane' : 'Haijawekwa')) }}</div>
-                                <div><strong style="color:var(--text);">Mwenza / Watoto:</strong> {{ $m->spouse_names ?: '—' }} / {{ $m->children_count ?? 0 }}</div>
-                                <div><strong style="color:var(--text);">Kuokoka / Kubatizwa:</strong> {{ $m->saved_date?->format('d/m/Y') ?? '—' }} / {{ $m->baptism_date?->format('d/m/Y') ?? '—' }}</div>
-                                <div><strong style="color:var(--text);">Huduma:</strong> {{ $m->service ?: 'Haijawekwa' }}</div>
-                                <div><strong style="color:var(--text);">Elimu:</strong> {{ $m->education ?: 'Haijawekwa' }}</div>
-                                <div><strong style="color:var(--text);">Mtaa / Kata:</strong> {{ collect([$m->street_name, $m->ward])->filter()->join(', ') ?: 'Haijawekwa' }}</div>
-                            </div>
-                        </details>
-                    @endif
-                    @if($user->isAdmin())
-                        <div style="font-size:.72rem;color:var(--text-muted);line-height:1.35;">
-                            {{ $m->departments->pluck('name_sw')->join(', ') ?: 'Hana idara' }}
+                    @if($canManageLeaders)
+                        <div style="display:flex;align-items:center;gap:6px;background:#fefce8;border:1px solid #fef08a;border-radius:999px;padding:4px 12px;font-size:.76rem;color:#854d0e;font-weight:700;">
+                            <i class="fa-solid fa-shield-halved" style="color:#ca8a04;"></i> Mamlaka ya Mwenyekiti: Kusajili & Kuwapa Password
+                        </div>
+                    @else
+                        <div style="font-size:.76rem;color:var(--text-muted);">
+                            <i class="fa-solid fa-circle-info"></i> Viongozi husajiliwa na kupewa password na Kiongozi Mwenyekiti.
                         </div>
                     @endif
-
                 </div>
-                @endforeach
+
+                @if($departmentLeaders->count() > 0)
+                <div class="members-grid">
+                    @foreach($departmentLeaders as $m)
+                    <div class="member-card" data-departments="{{ $m->departments->pluck('id')->join(',') }}" style="border-top:3px solid #3b82f6;position:relative;">
+                        {{-- Remove button for Mwenyekiti --}}
+                        @if($canManageLeaders && $m->id !== $user->id && !$m->isAdmin() && !$m->isMchungaji())
+                            <form method="POST" action="{{ route('department-leaders.remove', $m->id) }}"
+                                onsubmit="return confirm('Una uhakika wa kuondoa kiongozi {{ addslashes($m->name) }} kwenye uongozi wa idara hii?')"
+                                style="margin:0">
+                                @csrf
+                                <input type="hidden" name="department_id" value="{{ $department->id ?? '' }}">
+                                <button type="submit" class="member-card-remove" title="Ondoa kwenye Uongozi">
+                                    <i class="fa-solid fa-user-minus"></i> Ondoa
+                                </button>
+                            </form>
+                        @elseif($m->id === $user->id)
+                            <span class="member-card-self">Wewe</span>
+                        @endif
+
+                        {{-- Photo --}}
+                        <div class="member-card-photo" style="border:2.5px solid #3b82f6;box-shadow:0 4px 10px rgba(59,130,246,.2);">
+                            @if($m->avatar)
+                                <img src="{{ asset('storage/'.$m->avatar) }}" alt="{{ $m->name }}">
+                            @else
+                                {{ strtoupper(substr($m->name, 0, 1)) }}
+                            @endif
+                        </div>
+
+                        {{-- Name & Cheo Badge --}}
+                        <div class="member-card-name" style="font-weight:800;">{{ $m->name }}</div>
+                        <span class="badge-pill badge-kiongozi" style="font-weight:800;letter-spacing:.3px;background:#fef3c7;color:#92400e;border:1px solid #fde68a;">
+                            <i class="fa-solid fa-award" style="margin-right:4px;"></i> {{ $m->pivot?->cheo ?? $m->cheo ?? 'Kiongozi' }}
+                        </span>
+
+                        {{-- Contact info --}}
+                        <div class="member-card-email"><i class="fa-solid fa-envelope" style="margin-right:4px;color:var(--accent)"></i>{{ $m->email }}</div>
+                        @if($m->phone)
+                            <div class="member-card-phone"><i class="fa-solid fa-phone" style="margin-right:4px;color:var(--accent-green)"></i>{{ $m->phone }}</div>
+                        @endif
+
+                        {{-- Action for Mwenyekiti to reset/assign password --}}
+                        @if($canManageLeaders && !$m->isAdmin() && !$m->isMchungaji())
+                            <div style="margin-top:12px;padding-top:10px;border-top:1px solid #eef2f7;display:flex;justify-content:center;">
+                                <button type="button" class="btn btn-outline btn-sm" style="font-size:.76rem;padding:5px 12px;display:flex;align-items:center;gap:6px;color:#b45309;border-color:#fde68a;background:#fffbeb;font-weight:700;border-radius:8px;" onclick="openChangeLeaderPasswordModal('{{ $m->id }}', '{{ addslashes($m->name) }}', '{{ addslashes($m->email) }}', '{{ $department->id ?? '' }}', '{{ addslashes($m->pivot?->cheo ?? $m->cheo ?? 'Kiongozi') }}')">
+                                    <i class="fa-solid fa-key" style="color:#d97706;"></i> Badili Nenosiri
+                                </button>
+                            </div>
+                        @endif
+                    </div>
+                    @endforeach
+                </div>
+                @else
+                <div style="padding:24px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:12px;text-align:center;color:var(--text-muted);font-size:.85rem;">
+                    <i class="fa-solid fa-user-shield" style="font-size:2rem;color:#94a3b8;margin-bottom:8px;display:block;"></i>
+                    Bado hakuna viongozi waliosajiliwa kwenye idara hii.
+                    @if($canManageLeaders)
+                        <div style="margin-top:10px;">
+                            <button onclick="document.getElementById('registerLeaderModal').classList.add('open')" class="btn btn-primary btn-sm">
+                                <i class="fa-solid fa-plus"></i> Sajili Kiongozi wa Kwanza
+                            </button>
+                        </div>
+                    @endif
+                </div>
+                @endif
             </div>
-            @else
-            <div class="card" style="text-align:center;padding:50px;color:var(--text-muted);">
-                <i class="fa-solid fa-users" style="font-size:2.5rem;opacity:.3;margin-bottom:12px;"></i>
-                <p style="font-size:.9rem;">Hakuna wanachama bado. Ongeza mshirika wa kwanza!</p>
+
+            {{-- ════════════════════════════════════════════ --}}
+            {{-- 2. WASHIRIKA WA IDARA (Members)              --}}
+            {{-- ════════════════════════════════════════════ --}}
+            <div style="background:#fff;border:1px solid var(--border);border-radius:16px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,.03);">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border);">
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        <span style="width:34px;height:34px;border-radius:10px;background:#e0f2fe;color:#0369a1;display:inline-flex;align-items:center;justify-content:center;font-size:1.05rem;">
+                            <i class="fa-solid fa-users"></i>
+                        </span>
+                        <div>
+                            <div style="font-size:1rem;font-weight:800;color:var(--text);">Washirika wa Idara</div>
+                            <div style="font-size:.76rem;color:var(--text-muted);">Wanachama wanaoshiriki katika huduma za idara hii</div>
+                        </div>
+                        <span class="badge-pill" style="background:#f1f5f9;color:#475569;font-weight:800;font-size:.75rem;">{{ $departmentWashirika->count() }}</span>
+                    </div>
+
+                    <button onclick="document.getElementById('addMemberModal').classList.add('open')" class="btn btn-outline btn-sm" style="display:flex;align-items:center;gap:6px;font-size:.78rem;">
+                        <i class="fa-solid fa-user-plus"></i> Ongeza Mshirika
+                    </button>
+                </div>
+
+                @if($departmentWashirika->count() > 0)
+                <div class="members-grid">
+                    @foreach($departmentWashirika as $m)
+                    <div class="member-card" data-departments="{{ $m->departments->pluck('id')->join(',') }}">
+                        @if(!$user->isAdmin() && $m->id !== $user->id)
+                            <form method="POST" action="{{ route('members.remove') }}"
+                                onsubmit="return confirm('Una uhakika wa kuondoa {{ addslashes($m->name) }}?')"
+                                style="margin:0">
+                                @csrf
+                                <input type="hidden" name="department_id" value="{{ $department->id ?? '' }}">
+                                <input type="hidden" name="user_id" value="{{ $m->id }}">
+                                <button type="submit" class="member-card-remove">
+                                    <i class="fa-solid fa-user-minus"></i> Ondoa
+                                </button>
+                            </form>
+                        @elseif($m->id === $user->id)
+                            <span class="member-card-self">Wewe</span>
+                        @endif
+
+                        <div class="member-card-photo">
+                            @if($m->avatar)
+                                <img src="{{ asset('storage/'.$m->avatar) }}" alt="{{ $m->name }}">
+                            @else
+                                {{ strtoupper(substr($m->name, 0, 1)) }}
+                            @endif
+                        </div>
+
+                        <div class="member-card-name">{{ $m->name }}</div>
+                        <span class="badge-pill badge-mshirika">
+                            {{ $m->pivot?->cheo ?? 'Mshirika' }}
+                        </span>
+
+                        <div class="member-card-email"><i class="fa-solid fa-envelope" style="margin-right:4px;color:var(--accent)"></i>{{ $m->email }}</div>
+                        @if($m->phone)
+                            <div class="member-card-phone"><i class="fa-solid fa-phone" style="margin-right:4px;color:var(--accent-green)"></i>{{ $m->phone }}</div>
+                        @endif
+
+                        @if($user->isMchungaji())
+                            <details style="margin-top:10px;text-align:left;border-top:1px solid var(--border);padding-top:9px;">
+                                <summary style="cursor:pointer;color:var(--accent);font-weight:800;font-size:.78rem;">Tazama taarifa kamili</summary>
+                                <div style="display:grid;gap:5px;margin-top:9px;font-size:.75rem;color:var(--text-muted);">
+                                    <div><strong style="color:var(--text);">Idara:</strong> {{ $m->departments->pluck('name_sw')->join(', ') ?: 'Hana idara' }}</div>
+                                    <div><strong style="color:var(--text);">Jinsia:</strong> {{ $m->gender === 'male' ? 'Mwanaume' : ($m->gender === 'female' ? 'Mwanamke' : 'Haijawekwa') }}</div>
+                                    <div><strong style="color:var(--text);">Hali ya ndoa:</strong> {{ $m->marital_status === 'married' ? 'Nimeoa / Nimeolewa' : ($m->marital_status === 'single' ? 'Sijaoa / Sijaolewa' : ($m->marital_status === 'widowed' ? 'Mjane' : 'Haijawekwa')) }}</div>
+                                    <div><strong style="color:var(--text);">Mwenza / Watoto:</strong> {{ $m->spouse_names ?: '—' }} / {{ $m->children_count ?? 0 }}</div>
+                                    <div><strong style="color:var(--text);">Kuokoka / Kubatizwa:</strong> {{ $m->saved_date?->format('d/m/Y') ?? '—' }} / {{ $m->baptism_date?->format('d/m/Y') ?? '—' }}</div>
+                                    <div><strong style="color:var(--text);">Huduma:</strong> {{ $m->service ?: 'Haijawekwa' }}</div>
+                                    <div><strong style="color:var(--text);">Elimu:</strong> {{ $m->education ?: 'Haijawekwa' }}</div>
+                                    <div><strong style="color:var(--text);">Mtaa / Kata:</strong> {{ collect([$m->street_name, $m->ward])->filter()->join(', ') ?: 'Haijawekwa' }}</div>
+                                </div>
+                            </details>
+                        @endif
+                    </div>
+                    @endforeach
+                </div>
+                @else
+                <div style="text-align:center;padding:36px;color:var(--text-muted);">
+                    <i class="fa-solid fa-users" style="font-size:2.2rem;opacity:.3;margin-bottom:10px;display:block;"></i>
+                    <p style="font-size:.88rem;">Hakuna washirika wengine bado katika idara hii.</p>
+                </div>
+                @endif
             </div>
-            @endif
         </div>
         @endif
 
@@ -3355,6 +3487,260 @@ document.addEventListener('DOMContentLoaded', toggleMarriageFields);
 </div>
 @endif
 
+{{-- Register Leader Modal (Kiongozi Mwenyekiti / Mchungaji / Admin) --}}
+@if($user->isAdmin() || $user->isMchungaji() || $user->isMwenyekiti($department ?? null))
+<div class="modal-overlay" id="registerLeaderModal">
+    <div class="modal-box" style="max-width:540px;">
+        <button class="modal-close" onclick="document.getElementById('registerLeaderModal').classList.remove('open')"><i class="fa-solid fa-xmark"></i></button>
+        <div class="modal-title" style="display:flex;align-items:center;gap:10px;">
+            <span style="width:40px;height:40px;border-radius:10px;background:#eef2ff;color:#4f46e5;display:inline-flex;align-items:center;justify-content:center;font-size:1.2rem;">
+                <i class="fa-solid fa-user-shield"></i>
+            </span>
+            <div>
+                <div style="font-size:1.15rem;font-weight:800;color:var(--text);">Sajili Kiongozi wa Idara</div>
+                <div style="font-size:.78rem;font-weight:500;color:var(--text-muted);">Mwenyekiti husajili viongozi na kuwapa nenosiri lao</div>
+            </div>
+        </div>
+
+        <form action="{{ route('department-leaders.store') }}" method="POST" style="margin-top:16px;">
+            @csrf
+            
+            @if($user->isAdmin() || $user->isMchungaji())
+                <div class="form-group" style="margin-bottom:14px;">
+                    <label class="form-label">Chagua Idara <span style="color:#ef4444;">*</span></label>
+                    <select name="department_id" class="form-control" required>
+                        @foreach($allDepartments as $dept)
+                            <option value="{{ $dept->id }}" {{ isset($department) && $department->id === $dept->id ? 'selected' : '' }}>{{ $dept->name_sw }}</option>
+                        @endforeach
+                    </select>
+                </div>
+            @else
+                <input type="hidden" name="department_id" value="{{ $department->id ?? '' }}">
+                <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;">
+                    <span style="font-size:.85rem;color:var(--text-muted);">Idara Inayohusika:</span>
+                    <strong style="color:var(--accent);font-size:.9rem;">{{ $department->name_sw ?? 'Idara Yako' }}</strong>
+                </div>
+            @endif
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div class="form-group" style="grid-column:span 2;margin-bottom:12px;">
+                    <label class="form-label">Jina Kamili la Kiongozi <span style="color:#ef4444;">*</span></label>
+                    <input type="text" name="name" class="form-control" required placeholder="mfano: Emmanuel Yohana" value="{{ old('name') }}">
+                </div>
+
+                <div class="form-group" style="margin-bottom:12px;">
+                    <label class="form-label">Barua Pepe (Email) <span style="color:#ef4444;">*</span></label>
+                    <input type="email" name="email" class="form-control" required placeholder="mfano@kanisa.com" value="{{ old('email') }}">
+                </div>
+
+                <div class="form-group" style="margin-bottom:12px;">
+                    <label class="form-label">Namba ya Simu <span style="color:#ef4444;">*</span></label>
+                    <input type="tel" name="phone" class="form-control" required placeholder="07xxxxxxxx" value="{{ old('phone') }}">
+                </div>
+
+                <div class="form-group" style="margin-bottom:12px;">
+                    <label class="form-label">Cheo cha Uongozi <span style="color:#ef4444;">*</span></label>
+                    <select name="cheo" class="form-control" required>
+                        <option value="">-- Chagua Cheo --</option>
+                        @if($user->isAdmin() || $user->isMchungaji())
+                            <option value="Mwenyekiti">Mwenyekiti</option>
+                        @endif
+                        <option value="Makamu Mwenyekiti">Makamu Mwenyekiti</option>
+                        <option value="Katibu">Katibu</option>
+                        <option value="Katibu Msaidizi">Katibu Msaidizi</option>
+                        <option value="Mhasibu">Mhasibu</option>
+                        <option value="Mjumbe wa Kamati">Mjumbe wa Kamati</option>
+                    </select>
+                </div>
+
+                <div class="form-group" style="margin-bottom:12px;">
+                    <label class="form-label">Jinsia</label>
+                    <select name="gender" class="form-control">
+                        <option value="">-- Chagua Jinsia --</option>
+                        <option value="male">Mwanaume</option>
+                        <option value="female">Mwanamke</option>
+                    </select>
+                </div>
+            </div>
+
+            <div style="background:#fdf4ff;border:1px dashed #d946ef;border-radius:12px;padding:14px;margin:14px 0;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                    <label class="form-label" style="margin:0;font-weight:800;color:#86198f;">
+                        <i class="fa-solid fa-key" style="margin-right:4px;"></i> Weka Password ya Kiongozi <span style="color:#ef4444;">*</span>
+                    </label>
+                    <button type="button" class="btn btn-outline btn-sm" style="font-size:.72rem;padding:3px 8px;" onclick="generateLeaderPassword('reg_lead_pwd', 'reg_lead_pwd_confirm')">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Tengeneza Password
+                    </button>
+                </div>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                    <div style="position:relative;">
+                        <input type="password" name="password" id="reg_lead_pwd" class="form-control" required minlength="6" placeholder="Nenosiri (angalau herufi 6)">
+                        <button type="button" onclick="togglePasswordVisibility('reg_lead_pwd')" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:#94a3b8;cursor:pointer;">
+                            <i class="fa-solid fa-eye" id="reg_lead_pwd_eye"></i>
+                        </button>
+                    </div>
+                    <div style="position:relative;">
+                        <input type="password" name="password_confirmation" id="reg_lead_pwd_confirm" class="form-control" required minlength="6" placeholder="Thibitisha Nenosiri">
+                        <button type="button" onclick="togglePasswordVisibility('reg_lead_pwd_confirm')" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:#94a3b8;cursor:pointer;">
+                            <i class="fa-solid fa-eye" id="reg_lead_pwd_confirm_eye"></i>
+                        </button>
+                    </div>
+                </div>
+                <div style="font-size:.75rem;color:#701a75;margin-top:6px;">
+                    <i class="fa-solid fa-circle-info"></i> Utapokea taarifa zote pamoja na nenosiri hili ili umtumie kiongozi mara tu baada ya kuhifadhi.
+                </div>
+            </div>
+
+            <div style="display:flex;gap:10px;margin-top:16px;">
+                <button type="button" class="btn btn-secondary" style="flex:1;" onclick="document.getElementById('registerLeaderModal').classList.remove('open')">Ghairi</button>
+                <button type="submit" class="btn btn-primary" style="flex:2;background:linear-gradient(135deg,#1e3a8a,#3b82f6);border:none;box-shadow:0 4px 14px rgba(30,58,138,.3);">
+                    <i class="fa-solid fa-check"></i> Sajili Kiongozi
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{{-- Change Leader Password Modal --}}
+<div class="modal-overlay" id="changeLeaderPasswordModal">
+    <div class="modal-box" style="max-width:480px;">
+        <button class="modal-close" onclick="document.getElementById('changeLeaderPasswordModal').classList.remove('open')"><i class="fa-solid fa-xmark"></i></button>
+        <div class="modal-title" style="display:flex;align-items:center;gap:10px;">
+            <span style="width:40px;height:40px;border-radius:10px;background:#fef3c7;color:#b45309;display:inline-flex;align-items:center;justify-content:center;font-size:1.2rem;">
+                <i class="fa-solid fa-key"></i>
+            </span>
+            <div>
+                <div style="font-size:1.15rem;font-weight:800;color:var(--text);">Weka Nenosiri Jipya</div>
+                <div style="font-size:.78rem;font-weight:500;color:var(--text-muted);" id="clp_leader_info">Kiongozi: —</div>
+            </div>
+        </div>
+
+        <form id="changeLeaderPasswordForm" method="POST" action="" style="margin-top:16px;">
+            @csrf
+            <input type="hidden" name="department_id" id="clp_department_id" value="{{ $department->id ?? '' }}">
+
+            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:14px;">
+                <div style="font-size:.82rem;color:var(--text-muted);margin-bottom:4px;">Kiongozi anayebadilishiwa:</div>
+                <div style="font-weight:800;color:var(--text);font-size:.95rem;" id="clp_leader_name">—</div>
+                <div style="font-size:.78rem;color:var(--accent);font-weight:700;" id="clp_leader_cheo">—</div>
+                <div style="font-size:.78rem;color:var(--text-muted);" id="clp_leader_email">—</div>
+            </div>
+
+            <div class="form-group" style="margin-bottom:14px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                    <label class="form-label" style="margin:0;">Nenosiri Jipya <span style="color:#ef4444;">*</span></label>
+                    <button type="button" class="btn btn-outline btn-sm" style="font-size:.72rem;padding:3px 8px;" onclick="generateLeaderPassword('clp_new_pwd', 'clp_new_pwd_confirm')">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Tengeneza Password
+                    </button>
+                </div>
+                <div style="position:relative;">
+                    <input type="password" name="password" id="clp_new_pwd" class="form-control" required minlength="6" placeholder="Nenosiri jipya (angalau herufi 6)">
+                    <button type="button" onclick="togglePasswordVisibility('clp_new_pwd')" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:#94a3b8;cursor:pointer;">
+                        <i class="fa-solid fa-eye" id="clp_new_pwd_eye"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom:16px;">
+                <label class="form-label">Thibitisha Nenosiri Jipya <span style="color:#ef4444;">*</span></label>
+                <div style="position:relative;">
+                    <input type="password" name="password_confirmation" id="clp_new_pwd_confirm" class="form-control" required minlength="6" placeholder="Rudia nenosiri jipya">
+                    <button type="button" onclick="togglePasswordVisibility('clp_new_pwd_confirm')" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:#94a3b8;cursor:pointer;">
+                        <i class="fa-solid fa-eye" id="clp_new_pwd_confirm_eye"></i>
+                    </button>
+                </div>
+            </div>
+
+            <p style="font-size:.78rem;color:var(--text-muted);margin-bottom:16px;line-height:1.4;">
+                <i class="fa-solid fa-circle-exclamation" style="color:#f59e0b;"></i> Mara baada ya kubadili, utapewa taarifa hizi za siri ili umpatie kiongozi.
+            </p>
+
+            <div style="display:flex;gap:10px;">
+                <button type="button" class="btn btn-secondary" style="flex:1;" onclick="document.getElementById('changeLeaderPasswordModal').classList.remove('open')">Ghairi</button>
+                <button type="submit" class="btn btn-primary" style="flex:2;background:#b45309;border-color:#b45309;">
+                    <i class="fa-solid fa-floppy-disk"></i> Hifadhi Nenosiri
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+@endif
+
+{{-- Credentials Success Modal (Displays credentials to copy/send) --}}
+@php
+    $leaderCreds = session('registered_leader_credentials') ?? session('updated_leader_credentials');
+    $isNewRegistration = session()->has('registered_leader_credentials');
+@endphp
+@if($leaderCreds)
+<div class="modal-overlay open" id="leaderCredentialsModal">
+    <div class="modal-box" style="max-width:500px;text-align:center;">
+        <div style="width:60px;height:60px;border-radius:50%;background:#ecfdf5;color:#059669;display:inline-flex;align-items:center;justify-content:center;font-size:1.8rem;margin:0 auto 12px;box-shadow:0 6px 18px rgba(5,150,105,.2);">
+            <i class="fa-solid fa-check"></i>
+        </div>
+        <h3 style="font-size:1.25rem;font-weight:800;color:var(--text);margin-bottom:6px;">
+            {{ $isNewRegistration ? 'Kiongozi Amesajiliwa Kikamilifu!' : 'Nenosiri Limewekwa Kikamilifu!' }}
+        </h3>
+        <p style="font-size:.85rem;color:var(--text-muted);margin-bottom:16px;">
+            Mpe kiongozi taarifa zifuatazo ili aweze kuingia kwenye mfumo wa kanisa:
+        </p>
+
+        <div id="credentialsCopyBlock" style="background:#f8fafc;border:2px dashed #cbd5e1;border-radius:14px;padding:16px;text-align:left;margin-bottom:18px;">
+            <div style="display:flex;justify-content:space-between;border-bottom:1px solid #e2e8f0;padding-bottom:8px;margin-bottom:8px;">
+                <span style="font-size:.8rem;color:var(--text-muted);">Jina:</span>
+                <strong style="color:var(--text);font-size:.88rem;">{{ $leaderCreds['name'] ?? '' }}</strong>
+            </div>
+            @if(!empty($leaderCreds['cheo']))
+            <div style="display:flex;justify-content:space-between;border-bottom:1px solid #e2e8f0;padding-bottom:8px;margin-bottom:8px;">
+                <span style="font-size:.8rem;color:var(--text-muted);">Cheo:</span>
+                <span class="badge-pill badge-kiongozi" style="font-size:.78rem;background:#fef3c7;color:#92400e;">{{ $leaderCreds['cheo'] }}</span>
+            </div>
+            @endif
+            @if(!empty($leaderCreds['department']))
+            <div style="display:flex;justify-content:space-between;border-bottom:1px solid #e2e8f0;padding-bottom:8px;margin-bottom:8px;">
+                <span style="font-size:.8rem;color:var(--text-muted);">Idara:</span>
+                <strong style="color:var(--accent);font-size:.85rem;">{{ $leaderCreds['department'] }}</strong>
+            </div>
+            @endif
+            <div style="display:flex;justify-content:space-between;border-bottom:1px solid #e2e8f0;padding-bottom:8px;margin-bottom:8px;">
+                <span style="font-size:.8rem;color:var(--text-muted);">Barua Pepe (Email):</span>
+                <strong style="color:var(--text);font-size:.85rem;font-family:monospace;">{{ $leaderCreds['email'] ?? '' }}</strong>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;padding-top:2px;">
+                <span style="font-size:.8rem;color:var(--text-muted);">Nenosiri (Password):</span>
+                <span style="background:#fef08a;color:#854d0e;padding:4px 10px;border-radius:6px;font-family:monospace;font-size:1rem;font-weight:800;letter-spacing:1px;">
+                    {{ $leaderCreds['password'] ?? '' }}
+                </span>
+            </div>
+        </div>
+
+        @php
+            $waMessage = "Habari " . ($leaderCreds['name'] ?? '') . ",\n\n"
+                . "Umesajiliwa kama kiongozi (" . ($leaderCreds['cheo'] ?? 'Kiongozi') . ") wa " . ($leaderCreds['department'] ?? 'Idara') . " kwenye mfumo wa Philadelphia Church.\n\n"
+                . "Taarifa zako za kuingilia (Login Credentials):\n"
+                . "• Barua Pepe: " . ($leaderCreds['email'] ?? '') . "\n"
+                . "• Nenosiri: " . ($leaderCreds['password'] ?? '') . "\n"
+                . "• Kiungo cha Mfumo: " . url('/login') . "\n\n"
+                . "Tafadhali ingia na utumie mfumo kikamilifu. Barikiwa!";
+            $waUrl = "https://wa.me/" . preg_replace('/\D+/', '', $leaderCreds['phone'] ?? '') . "?text=" . rawurlencode($waMessage);
+        @endphp
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+            <button type="button" class="btn btn-outline" onclick="copyCredentialsText()" id="copyCredBtn" style="display:flex;align-items:center;justify-content:center;gap:6px;">
+                <i class="fa-solid fa-copy"></i> <span id="copyCredBtnText">Nakili Taarifa</span>
+            </button>
+            <a href="{{ $waUrl }}" target="_blank" class="btn btn-green" style="display:flex;align-items:center;justify-content:center;gap:6px;background:#25d366;border-color:#25d366;color:#fff;text-decoration:none;">
+                <i class="fa-brands fa-whatsapp"></i> Tuma WhatsApp
+            </a>
+        </div>
+
+        <button type="button" class="btn btn-secondary" style="width:100%;" onclick="document.getElementById('leaderCredentialsModal').classList.remove('open')">
+            Nimemaliza / Funga
+        </button>
+    </div>
+</div>
+@endif
+
 {{-- Add Department Modal (Mshirika) --}}
 @if($user->isMshirika())
 <div class="modal-overlay" id="addDeptModal">
@@ -3421,14 +3807,22 @@ document.addEventListener('DOMContentLoaded', toggleMarriageFields);
                 <div class="onb-role-grid">
                     <button type="button" class="onb-role-card" data-role-card="mshirika" onclick="selectOnboardingRole('mshirika')">
                         <div class="role-icon"><i class="fa-solid fa-user"></i></div>
-                        <h4>Mshirika</h4>
+                        <h4>Mshirika wa Kanisa</h4>
                         <p>Jiunge na idara unazoshiriki, hadi idara 5.</p>
                     </button>
+                    @if($user->isAdmin() || $user->isMchungaji() || $user->role === 'kiongozi')
                     <button type="button" class="onb-role-card" data-role-card="kiongozi" onclick="selectOnboardingRole('kiongozi')">
                         <div class="role-icon"><i class="fa-solid fa-user-tie"></i></div>
-                        <h4>Kiongozi</h4>
+                        <h4>Kiongozi wa Idara</h4>
                         <p>Chagua idara unayoiongoza na cheo chako.</p>
                     </button>
+                    @else
+                    <div class="onb-role-card" style="opacity:.65;cursor:not-allowed;background:#f8fafc;" title="Viongozi wa idara husajiliwa na kupewa password na Mwenyekiti">
+                        <div class="role-icon" style="background:#f1f5f9;color:#64748b;"><i class="fa-solid fa-lock"></i></div>
+                        <h4 style="color:#64748b;">Kiongozi wa Idara</h4>
+                        <p style="font-size:.76rem;color:#94a3b8;">Husajiliwa moja kwa moja na Kiongozi Mwenyekiti wa Idara.</p>
+                    </div>
+                    @endif
                 </div>
 
                 <button type="button" id="onb_role_next" onclick="goToOnboardingDepartments()" class="btn btn-primary" style="width:100%;margin-top:6px;padding:13px;font-size:.95rem;display:flex;align-items:center;justify-content:center;gap:8px;opacity:.55;" disabled>
@@ -4040,6 +4434,84 @@ document.addEventListener('DOMContentLoaded', toggleMarriageFields);
         if (labelText && label) {
             labelText.innerHTML = `${label} · Jumla: <strong>${visible}</strong>`;
         }
+    }
+
+    function openChangeLeaderPasswordModal(leaderId, leaderName, leaderEmail, departmentId, leaderCheo) {
+        const modal = document.getElementById('changeLeaderPasswordModal');
+        const form = document.getElementById('changeLeaderPasswordForm');
+        const nameEl = document.getElementById('clp_leader_name');
+        const emailEl = document.getElementById('clp_leader_email');
+        const cheoEl = document.getElementById('clp_leader_cheo');
+        const deptIdInput = document.getElementById('clp_department_id');
+        const infoEl = document.getElementById('clp_leader_info');
+
+        if (form) form.action = `/department-leaders/${leaderId}/password`;
+        if (nameEl) nameEl.textContent = leaderName;
+        if (emailEl) emailEl.textContent = leaderEmail;
+        if (cheoEl) cheoEl.textContent = leaderCheo || 'Kiongozi';
+        if (infoEl) infoEl.textContent = `${leaderName} (${leaderCheo || 'Kiongozi'})`;
+        if (deptIdInput && departmentId) deptIdInput.value = departmentId;
+
+        const pwd = document.getElementById('clp_new_pwd');
+        const pwdConfirm = document.getElementById('clp_new_pwd_confirm');
+        if (pwd) pwd.value = '';
+        if (pwdConfirm) pwdConfirm.value = '';
+
+        if (modal) modal.classList.add('open');
+    }
+
+    function generateLeaderPassword(pwdId, confirmId) {
+        const words = ['Uongozi', 'Baraka', 'Amani', 'Neema', 'Upendo', 'Tumaini', 'Ushindi'];
+        const randomWord = words[Math.floor(Math.random() * words.length)];
+        const randomNum = Math.floor(100 + Math.random() * 900);
+        const symbols = ['!', '@', '#', '$'];
+        const randomSym = symbols[Math.floor(Math.random() * symbols.length)];
+        const generated = `${randomWord}${randomNum}${randomSym}`;
+
+        const pwdEl = document.getElementById(pwdId);
+        const confirmEl = document.getElementById(confirmId);
+
+        if (pwdEl) {
+            pwdEl.value = generated;
+            pwdEl.type = 'text';
+            const eye = document.getElementById(`${pwdId}_eye`);
+            if (eye) eye.className = 'fa-solid fa-eye-slash';
+        }
+        if (confirmEl) {
+            confirmEl.value = generated;
+            confirmEl.type = 'text';
+            const eye = document.getElementById(`${confirmId}_eye`);
+            if (eye) eye.className = 'fa-solid fa-eye-slash';
+        }
+    }
+
+    function togglePasswordVisibility(inputId) {
+        const input = document.getElementById(inputId);
+        const eye = document.getElementById(`${inputId}_eye`);
+        if (!input) return;
+        if (input.type === 'password') {
+            input.type = 'text';
+            if (eye) eye.className = 'fa-solid fa-eye-slash';
+        } else {
+            input.type = 'password';
+            if (eye) eye.className = 'fa-solid fa-eye';
+        }
+    }
+
+    function copyCredentialsText() {
+        const block = document.getElementById('credentialsCopyBlock');
+        const btnText = document.getElementById('copyCredBtnText');
+        if (!block) return;
+
+        let text = block.innerText || block.textContent;
+        navigator.clipboard.writeText(text.trim()).then(() => {
+            if (btnText) btnText.textContent = 'Imenakiliwa!';
+            setTimeout(() => {
+                if (btnText) btnText.textContent = 'Nakili Taarifa';
+            }, 2500);
+        }).catch(err => {
+            console.error('Copy failed: ', err);
+        });
     }
 
     document.addEventListener('DOMContentLoaded', function() {

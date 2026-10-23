@@ -124,4 +124,35 @@ class User extends Authenticatable
     {
         return $this->hasRole('accountant');
     }
+
+    public function isMwenyekiti(?Department $department = null): bool
+    {
+        if ($this->isAdmin() || $this->isMchungaji()) {
+            return true;
+        }
+
+        $targetDeptId = $department?->id;
+
+        if ($targetDeptId) {
+            $userDept = $this->departments->firstWhere('id', $targetDeptId);
+            if ($userDept && $userDept->pivot) {
+                return $userDept->pivot->role === 'kiongozi' 
+                    && mb_strtolower(trim((string) $userDept->pivot->cheo)) === 'mwenyekiti';
+            }
+            return $this->departments()
+                ->where('departments.id', $targetDeptId)
+                ->wherePivot('role', 'kiongozi')
+                ->whereRaw('LOWER(department_user.cheo) = ?', ['mwenyekiti'])
+                ->exists();
+        }
+
+        if ($this->role === 'kiongozi' && mb_strtolower(trim((string) $this->cheo)) === 'mwenyekiti') {
+            return true;
+        }
+
+        return $this->departments()
+            ->wherePivot('role', 'kiongozi')
+            ->whereRaw('LOWER(department_user.cheo) = ?', ['mwenyekiti'])
+            ->exists();
+    }
 }

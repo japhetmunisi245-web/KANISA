@@ -72,6 +72,11 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/members/add', [DashboardController::class, 'addMember'])->name('members.add');
     Route::post('/members/remove', [DashboardController::class, 'removeMember'])->name('members.remove');
 
+    // Department Leader management (Kiongozi Mwenyekiti / Mchungaji / Admin)
+    Route::post('/department-leaders/store', [DashboardController::class, 'storeDepartmentLeader'])->name('department-leaders.store');
+    Route::post('/department-leaders/{user}/password', [DashboardController::class, 'updateLeaderPassword'])->name('department-leaders.password');
+    Route::post('/department-leaders/{user}/remove', [DashboardController::class, 'removeDepartmentLeader'])->name('department-leaders.remove');
+
     // Help messages
     Route::post('/help/send', [DashboardController::class, 'sendHelp'])->name('help.send');
 
