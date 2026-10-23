@@ -26,6 +26,13 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/church-office/announcements', [ChurchOfficeController::class, 'storeAnnouncement'])->name('church-office.announcements.store');
     Route::get('/church-office/announcements/{announcement}/media/download', [ChurchOfficeController::class, 'downloadAnnouncementMedia'])->name('church-office.announcements.media.download');
     Route::post('/church-office/attendance', [ChurchOfficeController::class, 'storeAttendance'])->name('church-office.attendance.store');
+    Route::post('/church-office/deacon/visits', [ChurchOfficeController::class, 'storeDeaconVisit'])->name('church-office.deacon.visits.store');
+    Route::post('/church-office/deacon/assignments', [ChurchOfficeController::class, 'assignDeaconMember'])->name('church-office.deacon.assignments.store');
+    Route::post('/church-office/deacon/follow-ups', [ChurchOfficeController::class, 'storeDeaconFollowUp'])->name('church-office.deacon.follow-ups.store');
+    Route::post('/church-office/deacon/assistance', [ChurchOfficeController::class, 'storeDeaconAssistance'])->name('church-office.deacon.assistance.store');
+    Route::post('/church-office/deacon/preparations', [ChurchOfficeController::class, 'storeDeaconPreparation'])->name('church-office.deacon.preparations.store');
+    Route::post('/church-office/deacon/messages', [ChurchOfficeController::class, 'storeDeaconMessage'])->name('church-office.deacon.messages.store');
+    Route::post('/church-office/deacon/reports', [ChurchOfficeController::class, 'storeDeaconReport'])->name('church-office.deacon.reports.store');
     Route::get('/church-office/visitors/report/pdf', [ChurchOfficeController::class, 'downloadVisitorReport'])->name('church-office.visitors.report.pdf');
     Route::post('/church-office/offerings', [ChurchOfficeController::class, 'storeOffering'])->name('church-office.offerings.store');
     Route::post('/church-office/expenses', [ChurchOfficeController::class, 'storeExpense'])->name('church-office.expenses.store');

@@ -53,6 +53,13 @@ class ChurchOfficeController extends Controller
         if ($user->isDeacon()) {
             return view('church-office.deacon', [
                 'user' => $user,
+                'assignedMembers' => \App\Models\DeaconMemberAssignment::with('member')
+                    ->where('deacon_id', $user->id)->latest()->get(),
+                'visits' => \App\Models\DeaconVisit::with('member')->where('deacon_id', $user->id)->latest('visited_on')->take(20)->get(),
+                'followUps' => \App\Models\DeaconSpiritualFollowUp::with('member')->where('deacon_id', $user->id)->latest()->take(20)->get(),
+                'assistanceRequests' => \App\Models\DeaconAssistanceRequest::with('member')->where('deacon_id', $user->id)->latest()->take(20)->get(),
+                'preparations' => \App\Models\DeaconServicePreparation::where('deacon_id', $user->id)->latest('service_date')->take(20)->get(),
+                'deaconReports' => \App\Models\DeaconReport::where('deacon_id', $user->id)->latest('report_date')->take(20)->get(),
                 'attendances' => $this->filterByMonthWeek(ServiceAttendance::query()->latest('service_date'), $request, 'attendance', 'service_date')->take(50)->get(),
                 'visitors' => $this->filterByMonthWeek(ServiceVisitor::query()->latest('visit_date'), $request, 'attendance', 'visit_date')->take(50)->get(),
                 'announcements' => ChurchAnnouncement::with('user')
@@ -110,6 +117,7 @@ class ChurchOfficeController extends Controller
             'reports' => Report::with(['user', 'department'])->latest('report_date')->take(10)->get(),
             'praiseLeaders' => $praiseLeaders,
             'deacons' => $deacons,
+            'deaconAccounts' => User::whereHas('roles', fn ($query) => $query->where('name', 'deacon'))->orderBy('name')->get(),
             'elders' => $elders,
             'cleaningDepartments' => $cleaningDepartments,
         ]);
@@ -197,6 +205,70 @@ class ChurchOfficeController extends Controller
         }
 
         return back()->with('success', 'Zamu za wiki zimechapishwa kwa washirika wote.');
+    }
+
+    public function storeDeaconVisit(Request $request)
+    {
+        $this->deacon();
+        $data = $request->validate(['member_id'=>'nullable|exists:users,id','visited_on'=>'required|date','visit_type'=>'required|in:mgonjwa,familia,nyumbani,nyingine','notes'=>'required|string|max:3000','follow_up_on'=>'nullable|date']);
+        \App\Models\DeaconVisit::create($data + ['deacon_id'=>Auth::id()]);
+        return back()->with('success', 'Ziara imehifadhiwa.');
+    }
+
+    public function assignDeaconMember(Request $request)
+    {
+        $this->secretary();
+        $data = $request->validate(['deacon_id'=>'required|exists:users,id','member_id'=>'required|exists:users,id']);
+        $deacon = User::findOrFail($data['deacon_id']);
+        abort_unless($this->isDeacon($deacon), 422, 'Chagua akaunti ya Shemasi.');
+        \App\Models\DeaconMemberAssignment::firstOrCreate($data, ['assigned_by'=>Auth::id()]);
+        return back()->with('success', 'Muumini amepangiwa Shemasi.');
+    }
+
+    public function storeDeaconFollowUp(Request $request)
+    {
+        $this->deacon();
+        $data = $request->validate(['member_id'=>'required|exists:users,id','status'=>'required|in:open,endelea,imekamilika','notes'=>'required|string|max:3000','next_follow_up_on'=>'nullable|date']);
+        \App\Models\DeaconSpiritualFollowUp::create($data + ['deacon_id'=>Auth::id()]);
+        return back()->with('success', 'Ufuatiliaji wa kiroho umehifadhiwa.');
+    }
+
+    public function storeDeaconAssistance(Request $request)
+    {
+        $this->deacon();
+        $data = $request->validate(['member_id'=>'nullable|exists:users,id','category'=>'required|string|max:80','details'=>'required|string|max:3000']);
+        \App\Models\DeaconAssistanceRequest::create($data + ['deacon_id'=>Auth::id(), 'status'=>'pending']);
+        return back()->with('success', 'Ombi la msaada limewasilishwa kwa viongozi.');
+    }
+
+    public function storeDeaconPreparation(Request $request)
+    {
+        $this->deacon();
+        $data = $request->validate(['service_date'=>'required|date','task'=>'required|string|max:255','notes'=>'nullable|string|max:2000']);
+        \App\Models\DeaconServicePreparation::create($data + ['deacon_id'=>Auth::id(), 'status'=>'pending']);
+        return back()->with('success', 'Maandalizi ya ibada yamehifadhiwa.');
+    }
+
+    public function storeDeaconMessage(Request $request)
+    {
+        $this->deacon();
+        $data = $request->validate(['title'=>'required|string|max:255','content'=>'required|string|max:3000']);
+        ChurchAnnouncement::create($data + ['user_id'=>Auth::id(), 'audience'=>'leaders']);
+        return back()->with('success', 'Taarifa imetumwa kwa viongozi.');
+    }
+
+    public function storeDeaconReport(Request $request)
+    {
+        $this->deacon();
+        $data = $request->validate(['title'=>'required|string|max:255','content'=>'required|string|max:5000','report_date'=>'required|date']);
+        \App\Models\DeaconReport::create($data + ['deacon_id'=>Auth::id()]);
+        ChurchAnnouncement::create([
+            'user_id' => Auth::id(),
+            'audience' => 'leaders',
+            'title' => 'Ripoti ya Shemasi: '.$data['title'],
+            'content' => $data['content'],
+        ]);
+        return back()->with('success', 'Ripoti imetumwa kwa mchungaji na viongozi.');
     }
 
     private function isDeacon(User $user): bool
@@ -494,6 +566,7 @@ class ChurchOfficeController extends Controller
     public function assignDepartment(Request $request, User $member) { $this->secretary(); $data=$request->validate(['department_id'=>'required|exists:departments,id']); $member->departments()->syncWithoutDetaching([$data['department_id']=>['role'=>'mshirika']]); return back()->with('success', 'Idara imeunganishwa na mshirika.'); }
     public function removeDepartment(User $member, Department $department) { $this->secretary(); $member->departments()->detach($department->id); return back()->with('success', 'Mshirika ameondolewa kwenye idara hiyo.'); }
     private function secretary(): void { abort_unless(Auth::user()->isSecretary(), 403); }
-    private function attendanceOfficer(): void { abort_unless(Auth::user()->isSecretary() || Auth::user()->isDeacon(), 403); }
+    private function deacon(): void { abort_unless(Auth::user()->isDeacon(), 403); }
+    private function attendanceOfficer(): void { abort_unless(Auth::user()->isSecretary() || (Auth::user()->isDeacon() && Auth::user()->can_record_attendance), 403); }
     private function offeringOfficer(): void { abort_unless(Auth::user()->isAccountant() || Auth::user()->isMchungaji(), 403); }
 }

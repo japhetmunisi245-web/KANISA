@@ -219,6 +219,36 @@
         .notification-item-title { font-weight: 800; color: var(--text); }
         .notification-item-content { margin: 5px 0; color: var(--text-muted); line-height: 1.45; white-space: pre-line; }
         .notification-item-meta { font-size: .74rem; color: var(--text-muted); }
+        /* Secretary-to-leader messages stay available while a leader works in
+           any dashboard panel instead of being hidden in the top navigation. */
+        .notification-wrap.notification-wrap-floating {
+            position: fixed;
+            right: 24px;
+            bottom: 24px;
+            z-index: 90;
+        }
+        .notification-wrap-floating .notification-trigger {
+            border: 0;
+            border-radius: 999px;
+            background: #4338ca;
+            color: #fff;
+            padding: 13px 18px;
+            font-size: .82rem;
+            box-shadow: 0 12px 28px rgba(67, 56, 202, .35);
+        }
+        .notification-wrap-floating .notification-trigger:hover { background: #3730a3; }
+        .notification-wrap-floating .notification-count { background: #ef4444; }
+        .notification-wrap-floating .notification-panel {
+            top: auto;
+            bottom: calc(100% + 12px);
+            left: auto;
+            right: 0;
+        }
+        @media (max-width: 700px) {
+            .notification-wrap.notification-wrap-floating { right: 16px; bottom: 16px; }
+            .notification-wrap-floating .notification-trigger { padding: 12px 15px; }
+            .notification-wrap-floating .notification-panel { right: 0; }
+        }
 
         /* ── CONTENT PANELS ── */
         .content { padding: 28px 32px; flex: 1; }
@@ -1016,7 +1046,12 @@
             ->merge($churchNotices)
             ->sortByDesc('created_at')
             ->values();
-        $notificationAnnouncements = $displayAnnouncements;
+        $isLeaderNotificationRecipient = $user->isAdmin() || $user->isMchungaji() || $user->isKiongozi();
+        // A secretary's announcements addressed to leaders are kept separate
+        // from department notices and presented in the floating leader inbox.
+        $notificationAnnouncements = $isLeaderNotificationRecipient
+            ? $churchNotices
+            : $displayAnnouncements;
         $notificationsReadAt = session('notifications_read_at_'.$user->id);
         $unreadNotificationCount = $notificationsReadAt
             ? $notificationAnnouncements->filter(fn ($announcement) => $announcement->created_at?->gt(\Illuminate\Support\Carbon::parse($notificationsReadAt)))->count()
@@ -1028,13 +1063,13 @@
         <button type="button" class="mobile-menu-btn" onclick="toggleMobileSidebar()" aria-label="Fungua menu" aria-expanded="false">
             <i class="fa-solid fa-bars"></i>
         </button>
-        <div class="notification-wrap">
+        <div class="notification-wrap {{ $isLeaderNotificationRecipient ? 'notification-wrap-floating' : '' }}">
             <button type="button" class="notification-trigger" id="notification-trigger" aria-expanded="false" aria-controls="notification-panel">
-                <i class="fa-solid fa-bell"></i> <span class="notification-trigger-text">Taarifa</span><span class="notification-count">{{ $unreadNotificationCount }}</span>
+                <i class="fa-solid fa-bell"></i> <span class="notification-trigger-text">{{ $isLeaderNotificationRecipient ? 'Ujumbe wa Katibu' : 'Taarifa' }}</span><span class="notification-count">{{ $unreadNotificationCount }}</span>
             </button>
-            <aside class="notification-panel" id="notification-panel" aria-label="Taarifa na matangazo">
+            <aside class="notification-panel" id="notification-panel" aria-label="{{ $isLeaderNotificationRecipient ? 'Ujumbe wa Katibu' : 'Taarifa na matangazo' }}">
                 <div class="notification-panel-head">
-                    <strong>Taarifa na Matangazo</strong>
+                    <strong>{{ $isLeaderNotificationRecipient ? 'Ujumbe wa Katibu' : 'Taarifa na Matangazo' }}</strong>
                     <button type="button" class="notification-close" id="notification-close" aria-label="Funga">&times;</button>
                 </div>
                 @forelse($notificationAnnouncements as $announcement)
@@ -1046,11 +1081,11 @@
                         @endif
                         <div class="notification-item-meta">
                             {{ optional($announcement->created_at)->format('d/m/Y H:i') }}
-                            &middot; {{ $announcement instanceof \App\Models\ChurchAnnouncement ? 'Kanisa' : ($announcement->department->name_sw ?? 'Kanisa') }}
+                            &middot; {{ $announcement instanceof \App\Models\ChurchAnnouncement ? ($announcement->user->name ?? 'Katibu wa Kanisa') : ($announcement->department->name_sw ?? 'Kanisa') }}
                         </div>
                     </article>
                 @empty
-                    <p class="notification-item-content">Hakuna taarifa au tangazo kwa sasa.</p>
+                    <p class="notification-item-content">{{ $isLeaderNotificationRecipient ? 'Hakuna ujumbe mpya kutoka kwa katibu.' : 'Hakuna taarifa au tangazo kwa sasa.' }}</p>
                 @endforelse
             </aside>
         </div>
