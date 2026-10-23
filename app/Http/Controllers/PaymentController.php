@@ -11,6 +11,7 @@ use App\Models\User;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 class PaymentController extends Controller
@@ -62,7 +63,7 @@ class PaymentController extends Controller
             'contribution_campaign_id' => 'nullable|exists:contribution_campaigns,id',
             'payment_method' => 'required|string',
             'payment_date'   => 'required|date',
-            'transaction_id' => 'nullable|string',
+            'transaction_id' => 'nullable|string|unique:payments,transaction_id',
             'notes'          => 'nullable|string',
             'user_id'        => 'nullable|exists:users,id',
         ]);
@@ -102,11 +103,9 @@ class PaymentController extends Controller
             'payment_date'   => $request->payment_date,
             'transaction_id' => $request->transaction_id,
             'notes'          => $request->notes,
-            'status'         => 'approved',
+            'recorded_by'    => $currentUser->id,
+            'status'         => 'pending',
         ]);
-
-        // Generate receipt
-        $this->generateReceipt($payment);
 
         AuditLog::create([
             'user_id'     => $currentUser->id,
@@ -116,23 +115,74 @@ class PaymentController extends Controller
             'document_id' => (string)$payment->id,
         ]);
 
-        return redirect()->back()->with('success', 'Malipo yamehifadhiwa kikamilifu na Risiti imetengenezwa!');
+        return redirect()->back()->with('success', 'Malipo yamehifadhiwa na yanasubiri idhini huru.');
+    }
+
+    /** Approve a payment recorded by another authorized user. */
+    public function approve(Request $request, Payment $payment)
+    {
+        /** @var User $currentUser */
+        $currentUser = Auth::user();
+
+        if (!$currentUser->isAdmin() && !$currentUser->isMchungaji()) {
+            return redirect()->back()->with('error', 'Huna ruhusa ya kuidhinisha malipo.');
+        }
+
+        if ($payment->recorded_by === $currentUser->id) {
+            return redirect()->back()->with('error', 'Huwezi kuidhinisha malipo uliyoingiza mwenyewe.');
+        }
+
+        if ($payment->status !== 'pending') {
+            return redirect()->back()->with('error', 'Malipo haya tayari yameshafanyiwa uamuzi.');
+        }
+
+        DB::transaction(function () use ($payment, $currentUser, $request): void {
+            $payment->update([
+                'status' => 'approved',
+                'approved_by' => $currentUser->id,
+                'approved_at' => now(),
+            ]);
+
+            $this->generateReceipt($payment);
+
+            AuditLog::create([
+                'user_id' => $currentUser->id,
+                'action' => 'PAYMENT_APPROVED',
+                'description' => "Malipo ya Tsh " . number_format($payment->amount) . " yameidhinishwa.",
+                'ip_address' => $request->ip(),
+                'document_id' => (string) $payment->id,
+            ]);
+        });
+
+        return redirect()->back()->with('success', 'Malipo yameidhinishwa na risiti imetengenezwa.');
     }
 
     // Helper: Generate PDF Receipt
-    public function generateReceipt(Payment $payment)
+    public function generateReceipt(Payment $payment): Receipt
     {
         $payment->load('user');
+
+        $existingReceipt = Receipt::where('payment_id', $payment->id)->first();
+        if ($existingReceipt) {
+            return $existingReceipt;
+        }
 
         $year = date('Y');
         $count = Receipt::whereYear('created_at', $year)->count() + 1;
         $receiptNumber = sprintf("EAGT-KBP-RCPT-%s-%04d", $year, $count);
 
-        $receipt = Receipt::create([
-            'receipt_number' => $receiptNumber,
-            'payment_id'     => $payment->id,
-            'user_id'        => $payment->user_id,
-        ]);
+        $receipt = Receipt::firstOrCreate(
+            ['payment_id' => $payment->id],
+            [
+                'receipt_number' => $receiptNumber,
+                'user_id' => $payment->user_id,
+            ]
+        );
+
+        // Another request may have created it between the lookup and insert.
+        if ($receipt->wasRecentlyCreated === false && $receipt->pdf_path) {
+            return $receipt;
+        }
 
         $churchName  = ChurchSetting::where('key', 'church_name')->value('value') ?? 'E.A.G.T KIBURUGWA PHILADELPHIA CHURCH';
         $address     = ChurchSetting::where('key', 'address')->value('value') ?? 'P.O. BOX 3236, DAR ES SALAAM';
@@ -153,6 +203,8 @@ class PaymentController extends Controller
         Storage::disk('public')->put($filename, $pdf->output());
 
         $receipt->update(['pdf_path' => $filename]);
+
+        return $receipt;
     }
 
     // Download Receipt PDF
@@ -165,8 +217,13 @@ class PaymentController extends Controller
             abort(403, 'Hauruhusiwi kuipakua risiti hii.');
         }
 
+        if ($receipt->payment->status !== 'approved') {
+            abort(403, 'Risiti hutolewa baada ya malipo kuidhinishwa.');
+        }
+
         if (!$receipt->pdf_path || !Storage::disk('public')->exists($receipt->pdf_path)) {
             $this->generateReceipt($receipt->payment);
+            $receipt->refresh();
         }
 
         return Storage::disk('public')->download($receipt->pdf_path);

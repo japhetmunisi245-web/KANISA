@@ -113,7 +113,9 @@ class ChurchSystemSeeder extends Seeder
                 ]);
             }
             $admin->assignRole($roleAdmin);
-            $admin->departments()->detach();
+            // Administrators oversee every department; persist those links so
+            // department-scoped queries and reports behave consistently.
+            $admin->departments()->sync(Department::pluck('id')->all());
         }
 
         // 5. Create / Update Mchungaji Accounts (MAGDALENA MKINGA)
@@ -139,7 +141,7 @@ class ChurchSystemSeeder extends Seeder
                 ]);
             }
             $mchungaji->assignRole($roleMchungaji);
-            $mchungaji->departments()->detach();
+            $mchungaji->departments()->sync(Department::pluck('id')->all());
         }
 
         // 6. Church office accounts

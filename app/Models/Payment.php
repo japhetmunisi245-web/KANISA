@@ -9,6 +9,10 @@ class Payment extends Model
 {
     protected $fillable = [
         'user_id',
+        'recorded_by',
+        'approved_by',
+        'approved_at',
+        'rejection_reason',
         'contribution_campaign_id',
         'amount',
         'type',

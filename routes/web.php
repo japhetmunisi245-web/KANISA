@@ -47,6 +47,7 @@ Route::middleware(['auth'])->group(function () {
     // Payments & Receipts System
     Route::post('/contributions/store', [PaymentController::class, 'storeContributionCampaign'])->name('contributions.store');
     Route::post('/payments/store', [PaymentController::class, 'store'])->name('payments.store');
+    Route::post('/payments/{payment}/approve', [PaymentController::class, 'approve'])->name('payments.approve');
     Route::get('/receipts/{id}/download', [PaymentController::class, 'downloadReceipt'])->name('receipts.download');
 
     // Church Settings (Mchungaji)
