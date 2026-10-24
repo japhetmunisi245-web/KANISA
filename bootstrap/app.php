@@ -11,6 +11,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Railway terminates TLS at its proxy and forwards requests internally.
+        // Trust its forwarded headers so Laravel recognizes the original HTTPS URL.
+        $middleware->trustProxies(at: '*');
+
         $middleware->web(append: [
             \App\Http\Middleware\PreventBackHistory::class,
             \App\Http\Middleware\SetUserLocale::class,
